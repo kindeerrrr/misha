@@ -216,8 +216,28 @@
   $: upcomingPayments = activePayments.filter(p => !p.paid).sort((a, b) => a.date.localeCompare(b.date))
   $: historyPayments = activePayments.filter(p => p.paid).sort((a, b) => b.date.localeCompare(a.date))
   $: historyByMonth = groupByMonth(historyPayments)
+  // Next unpaid payment date for a complex credit (from payments array)
+  function complexNextDate(creditId: string): string | null {
+    return payments
+      .filter(p => p.credit_id === creditId && !p.paid)
+      .sort((a, b) => a.date.localeCompare(b.date))[0]?.date ?? null
+  }
+
+  // Sum of unpaid payments in the nearest upcoming month for a complex credit
+  function complexMonthlySum(creditId: string): number {
+    const upcoming = payments
+      .filter(p => p.credit_id === creditId && !p.paid)
+      .sort((a, b) => a.date.localeCompare(b.date))
+    if (upcoming.length === 0) return 0
+    const nearestMonth = upcoming[0].date.slice(0, 7)
+    return upcoming.filter(p => p.date.slice(0, 7) === nearestMonth).reduce((s, p) => s + p.amount, 0)
+  }
+
   $: totalRemaining = credits.reduce((s, c) => s + c.remaining, 0)
-  $: totalMonthly = credits.filter(c => c.monthly_payment).reduce((s, c) => s + (c.monthly_payment ?? 0), 0)
+  $: totalMonthly = credits.reduce((s, c) => {
+    if (c.is_complex) return s + complexMonthlySum(c.id)
+    return s + (c.monthly_payment ?? 0)
+  }, 0)
   $: totalWithInterestAll = credits.reduce((s, c) => {
     const t = totalWithInterest(c)
     return s + (t !== null ? t : c.remaining)
@@ -225,9 +245,9 @@
   $: sortedCredits = [...credits].sort((a, b) => {
     if (sortMode === 'name') return a.name.localeCompare(b.name, 'ru')
     if (sortMode === 'amount') return b.remaining - a.remaining
-    // 'date': sort by next payment date ascending; credits without payment_day go last
-    const da = nextPaymentDate(a.payment_day)
-    const db = nextPaymentDate(b.payment_day)
+    // 'date': soonest next payment first; no-date last
+    const da = a.is_complex ? complexNextDate(a.id) : nextPaymentDate(a.payment_day)
+    const db = b.is_complex ? complexNextDate(b.id) : nextPaymentDate(b.payment_day)
     if (!da && !db) return 0
     if (!da) return 1
     if (!db) return -1
@@ -236,9 +256,16 @@
 
   // ── Load ───────────────────────────────────────────────────────────────────
   async function load() {
-    const { data } = await supabase.from('credits')
+    const { data: creditsData } = await supabase.from('credits')
       .select('*').eq('user_id', $user!.id).order('created_at')
-    credits = data ?? []
+    credits = creditsData ?? []
+    // Pre-load payments for complex credits so list-view chips work immediately
+    const complexIds = credits.filter(c => c.is_complex).map(c => c.id)
+    if (complexIds.length > 0) {
+      const { data: paymentsData } = await supabase.from('credit_payments')
+        .select('*').in('credit_id', complexIds)
+      payments = paymentsData ?? []
+    }
     loading = false
   }
 
@@ -251,6 +278,8 @@
   async function openDetail(c: Credit) {
     activeCredit = c; view = 'detail'
     await loadPayments(c.id)
+    // Auto-sync remaining for complex credits in case payments were added before this feature
+    if (c.is_complex) await syncRemaining(c.id, payments)
   }
 
   function backToList() { view = 'list'; activeCredit = null }
@@ -642,10 +671,11 @@
       <div class="credit-list">
         {#each sortedCredits as credit}
           {@const pct = paidPct(credit)}
-          {@const nextDate = nextPaymentDate(credit.payment_day)}
+          {@const nextDate = credit.is_complex ? complexNextDate(credit.id) : nextPaymentDate(credit.payment_day)}
           {@const days = daysUntil(nextDate)}
           {@const forecast = closureForecast(credit)}
-          {@const twi = totalWithInterest(credit)}
+          {@const twi = credit.is_complex ? null : totalWithInterest(credit)}
+          {@const cMonthly = credit.is_complex ? complexMonthlySum(credit.id) : 0}
           <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
           <div class="credit-card" on:click={() => openDetail(credit)}>
             <div class="credit-top">
@@ -672,10 +702,12 @@
             </div>
 
             <div class="credit-meta">
-              {#if credit.monthly_payment}
+              {#if credit.is_complex && cMonthly > 0}
+                <span class="meta-chip">{cMonthly.toLocaleString('ru-RU')} ₽/мес</span>
+              {:else if credit.monthly_payment}
                 <span class="meta-chip">{credit.monthly_payment.toLocaleString('ru-RU')} ₽/мес</span>
               {/if}
-              {#if nextDate && days !== null && !credit.is_complex}
+              {#if nextDate && days !== null}
                 <span class="meta-chip" class:urgent={days <= 3 && days >= 0} class:overdue={days < 0}>
                   {#if days < 0}просрочен {Math.abs(days)} дн.
                   {:else if days === 0}платёж сегодня
@@ -697,12 +729,13 @@
 <!-- ══════════════════════════════════════════════════════════ DETAIL VIEW ══ -->
 {:else if view === 'detail' && activeCredit}
   {@const pct = paidPct(activeCredit)}
-  {@const nextDate = nextPaymentDate(activeCredit.payment_day)}
+  {@const nextDate = activeCredit.is_complex ? complexNextDate(activeCredit.id) : nextPaymentDate(activeCredit.payment_day)}
   {@const days = daysUntil(nextDate)}
   {@const forecast = closureForecast(activeCredit)}
   {@const spark = sparkline(historyPayments, activeCredit.total_amount)}
-  {@const twi = totalWithInterest(activeCredit)}
+  {@const twi = activeCredit.is_complex ? null : totalWithInterest(activeCredit)}
   {@const paymentsLeft = remainingPaymentsCount(activeCredit)}
+  {@const detailMonthly = activeCredit.is_complex ? complexMonthlySum(activeCredit.id) : (activeCredit.monthly_payment ?? 0)}
 
   <div class="page-shell">
     <header class="page-header">
@@ -742,10 +775,10 @@
       </div>
 
       <div class="detail-meta-row">
-        {#if activeCredit.monthly_payment}
+        {#if detailMonthly > 0}
           <div class="detail-meta-block">
-            <span class="detail-meta-label">Платёж</span>
-            <span class="detail-meta-val">{activeCredit.monthly_payment.toLocaleString('ru-RU')} ₽</span>
+            <span class="detail-meta-label">{activeCredit.is_complex ? 'Ближайший мес' : 'Платёж'}</span>
+            <span class="detail-meta-val">{detailMonthly.toLocaleString('ru-RU')} ₽</span>
           </div>
         {/if}
         {#if activeCredit.payment_day && !activeCredit.is_complex}
@@ -754,7 +787,7 @@
             <span class="detail-meta-val">{activeCredit.payment_day}</span>
           </div>
         {/if}
-        {#if nextDate && !activeCredit.is_complex}
+        {#if nextDate}
           <div class="detail-meta-block">
             <span class="detail-meta-label">Следующий</span>
             <span class="detail-meta-val" class:urgent={days !== null && days <= 3 && days >= 0} class:overdue={days !== null && days < 0}>
