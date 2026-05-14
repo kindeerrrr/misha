@@ -68,6 +68,7 @@
   let catSection: CatSection | null = null
   let loading = true
   let loadError = ''
+  let showPetPicker = false
 
   // Profile
   let profiles: CatProfile[] = []
@@ -166,6 +167,7 @@
     if (error) { loadError = error.message; loading = false; return }
     profiles = data ?? []
     if (profiles.length === 1) await openPet(profiles[0])
+    else if (profiles.length > 1) showPetPicker = true
     loading = false
   }
 
@@ -177,18 +179,20 @@
   }
 
   async function openPet(p: CatProfile) {
+    showPetPicker = false
     selectedProfile = p; fillForm(p); catSection = null
     await loadPetData(p.id); view = 'pet'
   }
 
   function startNewPet() {
+    showPetPicker = false
     selectedProfile = null; pName = ''; pBreed = ''; pBirth = ''; pWeight = ''; pNotes = ''
     pAnimalType = 'cat'; pPhotoUrl = ''; pCoatColor = ''; saveError = ''; isNewPet = true
     vaccines = []; healthEvents = []; groomings = []; foodOrders = []
     catSection = null; showProfileEdit = true; view = 'pet'
   }
 
-  function goBack() { view = 'list'; selectedProfile = null; isNewPet = false }
+  function goBack() { view = 'list'; selectedProfile = null; isNewPet = false; showPetPicker = profiles.length > 1 }
 
   async function loadPetData(catId: string) {
     const [vaccRes, healthRes, groomRes, foodRes] = await Promise.all([
@@ -420,9 +424,16 @@
               {/if}
             </div>
           </div>
+          <div class="pet-header-actions">
+            {#if profiles.length > 1}
+              <button class="gear-btn" on:click={() => showPetPicker = true} title="Сменить питомца">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+              </button>
+            {/if}
           <button class="gear-btn" on:click={() => { if (selectedProfile) fillForm(selectedProfile); showProfileEdit = true }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           </button>
+          </div>
         {/if}
       </header>
 
@@ -660,6 +671,36 @@
     {/if}
   {/if}
 </div>
+
+<!-- Pet picker bottom sheet -->
+{#if showPetPicker}
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div class="picker-backdrop" on:click={() => { if (profiles.length > 0 && selectedProfile) showPetPicker = false }}></div>
+  <div class="picker-sheet">
+    <div class="picker-handle"></div>
+    <h2 class="picker-title">Выбери питомца</h2>
+    <div class="picker-pets">
+      {#each profiles as p}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="picker-pet" on:click={() => openPet(p)}>
+          <div class="picker-avatar">
+            {#if p.photo_url}
+              <img src={p.photo_url} alt={p.name} class="pet-img" />
+            {:else}
+              <div class="picker-icon">{@html icons.paw}</div>
+            {/if}
+          </div>
+          <span class="picker-pet-name">{p.name}</span>
+          {#if p.breed}<span class="picker-pet-sub">{p.breed}</span>{/if}
+        </div>
+      {/each}
+    </div>
+    <button class="picker-add-btn" on:click={startNewPet}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Добавить питомца
+    </button>
+  </div>
+{/if}
 
 <!-- Profile edit modal -->
 <Modal title={isNewPet ? 'Новый питомец' : 'Редактировать профиль'} open={showProfileEdit} on:close={() => showProfileEdit = false}>
@@ -953,4 +994,62 @@
   .mt-3 { margin-top: 0.75rem; }
   .mt-4 { margin-top: 1rem; }
   .mb-2 { margin-bottom: 0.5rem; }
+
+  /* ── Pet picker ── */
+  .picker-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 100; backdrop-filter: blur(2px);
+  }
+  .picker-sheet {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--color-bg);
+    border-radius: 1.5rem 1.5rem 0 0;
+    padding: 0.75rem 1.375rem 3rem;
+    z-index: 101;
+    animation: slideUp 0.25s ease;
+    max-width: 480px; margin: 0 auto;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .picker-handle {
+    width: 2.5rem; height: 4px; border-radius: 2px;
+    background: var(--color-border); margin: 0 auto 1.25rem;
+  }
+  .picker-title {
+    font-family: "Fraunces", serif; font-size: 1.25rem; font-weight: 300;
+    color: var(--color-text); margin: 0 0 1rem; letter-spacing: -0.01em;
+  }
+  .picker-pets {
+    display: flex; gap: 0.75rem; overflow-x: auto;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    margin-bottom: 1rem; padding-bottom: 0.25rem;
+  }
+  .picker-pets::-webkit-scrollbar { display: none; }
+  .picker-pet {
+    display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0; width: 5rem;
+  }
+  .picker-pet:active { opacity: 0.7; }
+  .picker-avatar {
+    width: 4rem; height: 4rem; border-radius: 50%;
+    background: var(--color-card); border: 2px solid var(--color-border);
+    overflow: hidden; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .picker-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .picker-icon { width: 1.75rem; height: 1.75rem; color: var(--color-muted); }
+  .picker-icon :global(svg) { width: 100%; height: 100%; }
+  .picker-pet-name { font-size: 0.875rem; font-weight: 500; color: var(--color-text); text-align: center; }
+  .picker-pet-sub { font-size: 0.6875rem; color: var(--color-muted); text-align: center; line-height: 1.3; }
+  .picker-add-btn {
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+    width: 100%; padding: 0.75rem;
+    background: var(--color-card); border: 1.5px dashed var(--color-border);
+    border-radius: 1rem; cursor: pointer; font-family: inherit;
+    font-size: 0.9375rem; color: var(--color-muted);
+    -webkit-tap-highlight-color: transparent; transition: border-color 0.15s;
+  }
+  .picker-add-btn:active { opacity: 0.7; }
+
+  .pet-header-actions { display: flex; align-items: center; gap: 0.25rem; }
 </style>
