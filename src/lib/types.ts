@@ -291,6 +291,9 @@ export interface MediaItem {
   current_episode: number | null
   is_finished: boolean
   season_ratings: number[] | null
+  episodes_per_season: number[] | null
+  watched_episodes: number[][] | null
+  reading_log: { date: string; minutes: number }[] | null
   created_at: string
 }
 
