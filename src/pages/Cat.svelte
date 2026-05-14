@@ -86,10 +86,28 @@
   let groomingFilter: string | null = null
   let foodBrandFilter: string | null = null
 
-  $: filteredHealth = healthFilter ? healthEvents.filter(e => e.category === healthFilter) : healthEvents
-  $: filteredGroomings = groomingFilter ? groomings.filter(g => g.type === groomingFilter) : groomings
-  $: foodBrands = [...new Set(foodOrders.map(f => f.brand))]
-  $: filteredFood = foodBrandFilter ? foodOrders.filter(f => f.brand === foodBrandFilter) : foodOrders
+  function sortNearest<T extends { date: string }>(items: T[], nextKey?: string): T[] {
+    return [...items].sort((a, b) => {
+      const an: string | null = nextKey ? (a as any)[nextKey] : null
+      const bn: string | null = nextKey ? (b as any)[nextKey] : null
+      const aUp = an && an >= todayDate
+      const bUp = bn && bn >= todayDate
+      if (aUp && bUp) return an!.localeCompare(bn!)
+      if (aUp) return -1
+      if (bUp) return 1
+      return b.date.localeCompare(a.date)
+    })
+  }
+
+  $: filteredHealth    = healthFilter    ? healthEvents.filter(e => e.category === healthFilter)   : healthEvents
+  $: filteredGroomings = groomingFilter  ? groomings.filter(g => g.type === groomingFilter)        : groomings
+  $: foodBrands        = [...new Set(foodOrders.map(f => f.brand))]
+  $: filteredFood      = foodBrandFilter ? foodOrders.filter(f => f.brand === foodBrandFilter)     : foodOrders
+
+  $: sortedVaccines  = sortNearest(vaccines,          'next_due')
+  $: sortedGroomings = sortNearest(filteredGroomings,  'next_due')
+  $: sortedFood      = sortNearest(filteredFood,       'next_order')
+  $: sortedHealth    = sortNearest(filteredHealth)
 
   // Upcoming
   $: nextVaccine = vaccines.filter(v => v.next_due && v.next_due > todayDate).sort((a,b) => a.next_due!.localeCompare(b.next_due!))[0] ?? null
@@ -476,7 +494,7 @@
           <div class="empty-state mt-3">Прививок пока нет</div>
         {:else}
           <div class="item-list mt-3">
-            {#each vaccines as v}
+            {#each sortedVaccines as v}
               <div class="item-card">
                 <div class="item-row">
                   <div class="item-main">
@@ -510,7 +528,7 @@
           <div class="empty-state mt-3">Записей нет</div>
         {:else}
           <div class="item-list mt-3">
-            {#each filteredHealth as e}
+            {#each sortedHealth as e}
               <div class="item-card">
                 <div class="item-row">
                   <div class="item-category-badge cat-{e.category}">
@@ -550,7 +568,7 @@
           <div class="empty-state mt-3">Визитов пока нет</div>
         {:else}
           <div class="item-list mt-3">
-            {#each filteredGroomings as g}
+            {#each sortedGroomings as g}
               <div class="item-card">
                 <div class="item-row">
                   <div class="item-main">
@@ -584,7 +602,7 @@
           <div class="empty-state mt-3">Заказов пока нет</div>
         {:else}
           <div class="item-list mt-3">
-            {#each filteredFood as f}
+            {#each sortedFood as f}
               <div class="item-card">
                 <div class="item-row">
                   <div class="item-main">
