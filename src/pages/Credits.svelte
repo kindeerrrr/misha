@@ -332,6 +332,7 @@
 
   // ── Chart ──────────────────────────────────────────────────────────────────
   const BAR_W = 36, BAR_GAP = 6, CHART_H = 96
+  const LINE_STEP = 52, LINE_H = 108
 
   $: chartData = (() => {
     if (credits.length === 0) return null
@@ -388,6 +389,64 @@
     })
 
     return { bars, maxTotal, totalW: sorted.length * (BAR_W + BAR_GAP) }
+  })()
+
+  // ── Line chart: one line per credit ────────────────────────────────────────
+  $: lineChartData = (() => {
+    if (!chartData || chartData.bars.length === 0) return null
+    const bars = chartData.bars
+    const months = bars.map(b => b.key)
+    const barMap = new Map(bars.map(b => [b.key, b]))
+    const creditIdx = new Map(credits.map((c, i) => [c.id, i]))
+    const PAD_TOP = 14, PAD_BOT = 6
+
+    const lines = credits.map(c => {
+      const amounts = months.map(month => {
+        const seg = barMap.get(month)?.segments.find(s => s.cid === c.id)
+        return seg?.amount ?? 0
+      })
+      if (!amounts.some(v => v > 0)) return null
+      return { credit: c, amounts, colorIdx: creditIdx.get(c.id) ?? 0 }
+    }).filter((l): l is NonNullable<typeof l> => l !== null)
+
+    if (lines.length === 0) return null
+    const maxVal = Math.max(1, ...lines.flatMap(l => l.amounts))
+
+    const svgLines = lines.map(l => {
+      let pathD = '', inLine = false, lastActiveI = 0
+      l.amounts.forEach((v, i) => {
+        const x = i * LINE_STEP + LINE_STEP / 2
+        const y = PAD_TOP + (1 - v / maxVal) * (LINE_H - PAD_TOP - PAD_BOT)
+        if (v > 0) {
+          pathD += inLine ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`
+          inLine = true; lastActiveI = i
+        } else { inLine = false }
+      })
+      const lastV = l.amounts[lastActiveI]
+      const lastX = lastActiveI * LINE_STEP + LINE_STEP / 2
+      const lastY = PAD_TOP + (1 - lastV / maxVal) * (LINE_H - PAD_TOP - PAD_BOT)
+      return { ...l, pathD, lastX, lastY }
+    })
+
+    return { months, svgLines, maxVal, PAD_TOP, PAD_BOT, totalW: months.length * LINE_STEP }
+  })()
+
+  // ── Credit ranking ─────────────────────────────────────────────────────────
+  $: creditRanking = (() => {
+    const total = totalMonthly || 1
+    return credits.map(c => {
+      const monthly = c.is_complex
+        ? (() => {
+            const upcoming = payments.filter(p => p.credit_id === c.id && !p.paid).sort((a, b) => a.date.localeCompare(b.date))
+            if (!upcoming.length) return 0
+            const nm = upcoming[0].date.slice(0, 7)
+            return upcoming.filter(p => p.date.slice(0, 7) === nm).reduce((s, p) => s + p.amount, 0)
+          })()
+        : (c.monthly_payment ?? 0)
+      const monthsLeft = monthly > 0 ? Math.ceil(c.remaining / monthly) : null
+      const pct = Math.round((monthly / total) * 100)
+      return { credit: c, monthly, monthsLeft, pct, forecast: closureForecast(c), remaining: c.remaining }
+    }).sort((a, b) => b.remaining - a.remaining)
   })()
 
   // ── Load ───────────────────────────────────────────────────────────────────
@@ -922,8 +981,50 @@
           <p class="empty-sub">Добавь кредиты с расписанием платежей</p>
         </div>
       {:else}
+
+        <!-- Линейный график: 1 линия = 1 кредит -->
+        {#if lineChartData}
+          <div class="chart-card">
+            <p class="chart-title">Платёж по кредиту / месяц</p>
+            <div class="chart-legend">
+              {#each lineChartData.svgLines as l}
+                <div class="legend-item">
+                  <span class="legend-dot" style="background:{CREDIT_COLORS[l.colorIdx % CREDIT_COLORS.length]}"></span>
+                  <span class="legend-name">{l.credit.name}</span>
+                </div>
+              {/each}
+            </div>
+            <div class="chart-scroll">
+              <svg width={lineChartData.totalW} height={LINE_H + 28} style="display:block;overflow:visible">
+                <!-- Grid lines -->
+                {#each [0.5, 1] as frac}
+                  {@const gy = lineChartData.PAD_TOP + (1 - frac) * (LINE_H - lineChartData.PAD_TOP - lineChartData.PAD_BOT)}
+                  <line x1="0" y1={gy} x2={lineChartData.totalW} y2={gy} stroke="var(--color-border)" stroke-width="1"/>
+                  <text x="2" y={gy - 2} class="chart-yr">{fmtNum(lineChartData.maxVal * frac / 1000)}к</text>
+                {/each}
+                <!-- Lines -->
+                {#each lineChartData.svgLines as l}
+                  {@const color = CREDIT_COLORS[l.colorIdx % CREDIT_COLORS.length]}
+                  <path d={l.pathD} stroke={color} stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+                  <circle cx={l.lastX} cy={l.lastY} r="3.5" fill={color}/>
+                {/each}
+                <!-- Month labels -->
+                {#each lineChartData.months as month, i}
+                  {@const mi = parseInt(month.slice(5,7)) - 1}
+                  {@const prev = lineChartData.months[i - 1]}
+                  <text x={i * LINE_STEP + LINE_STEP / 2} y={LINE_H + 14} text-anchor="middle" class="chart-lbl">{RU_MONTHS_SHORT[mi]}</text>
+                  {#if !prev || prev.slice(0,4) !== month.slice(0,4)}
+                    <text x={i * LINE_STEP + LINE_STEP / 2} y={LINE_H + 24} text-anchor="middle" class="chart-yr">'{month.slice(2,4)}</text>
+                  {/if}
+                {/each}
+              </svg>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Стековый бар: итого в месяц -->
         <div class="chart-card">
-          <p class="chart-title">Нагрузка по месяцам</p>
+          <p class="chart-title">Итоговая нагрузка в месяц</p>
           <div class="chart-legend">
             {#each credits as c, i}
               <div class="legend-item">
@@ -936,19 +1037,46 @@
             <svg width={chartData.totalW} height={CHART_H + 30} style="display:block;overflow:visible">
               {#each chartData.bars as bar}
                 {#each bar.segments as seg}
-                  <rect x={seg.x} y={seg.y} width={seg.w} height={seg.h} fill={seg.color} rx="2" opacity="0.85" />
+                  <rect x={seg.x} y={seg.y} width={seg.w} height={seg.h} fill={seg.color} rx="2" opacity="0.85"/>
                 {/each}
+                {#if bar.segments.length > 0}
+                  <text x={bar.x + BAR_W / 2} y={bar.segments[0].y - 3} text-anchor="middle" class="chart-yr">{fmtNum(bar.total / 1000)}к</text>
+                {/if}
                 <text x={bar.x + BAR_W / 2} y={CHART_H + 13} text-anchor="middle" class="chart-lbl">{bar.label}</text>
                 {#if bar.year}
                   <text x={bar.x + BAR_W / 2} y={CHART_H + 24} text-anchor="middle" class="chart-yr">{bar.year}</text>
-                {/if}
-                {#if bar.total >= chartData.maxTotal * 0.9 && bar.segments.length > 0}
-                  <text x={bar.x + BAR_W / 2} y={bar.segments[0].y - 3} text-anchor="middle" class="chart-yr">{fmtNum(bar.total / 1000)}к</text>
                 {/if}
               {/each}
             </svg>
           </div>
         </div>
+
+        <!-- Рейтинг нагрузки -->
+        <div class="chart-card">
+          <p class="chart-title">Рейтинг по долгу</p>
+          <div class="ranking-list">
+            {#each creditRanking as item, i}
+              {@const color = CREDIT_COLORS[i % CREDIT_COLORS.length]}
+              <div class="ranking-row">
+                <div class="ranking-top">
+                  <div class="ranking-name-row">
+                    <span class="ranking-dot" style="background:{color}"></span>
+                    <span class="ranking-name">{item.credit.name}</span>
+                  </div>
+                  <span class="ranking-remaining">{fmtNum(item.remaining)} ₽</span>
+                </div>
+                <div class="ranking-bar-wrap">
+                  <div class="ranking-bar-fill" style="width:{item.pct}%;background:{color}opacity:0.7"></div>
+                </div>
+                <div class="ranking-meta">
+                  <span>{fmtNum(item.monthly)} ₽/мес · {item.pct}% бюджета</span>
+                  {#if item.forecast}<span>~{item.forecast}</span>{/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+
       {/if}
     {/if}
 
@@ -1940,4 +2068,16 @@
     font-size: 0.9375rem; font-weight: 600; color: var(--color-text);
     font-family: "JetBrains Mono", monospace; flex-shrink: 0;
   }
+
+  /* ── Credit ranking ── */
+  .ranking-list { display: flex; flex-direction: column; gap: 0.875rem; }
+  .ranking-row { display: flex; flex-direction: column; gap: 0.3rem; }
+  .ranking-top { display: flex; justify-content: space-between; align-items: center; }
+  .ranking-name-row { display: flex; align-items: center; gap: 0.375rem; min-width: 0; }
+  .ranking-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .ranking-name { font-size: 0.9375rem; font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ranking-remaining { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); font-family: "JetBrains Mono", monospace; flex-shrink: 0; margin-left: 0.5rem; }
+  .ranking-bar-wrap { height: 4px; background: var(--color-border); border-radius: 2px; overflow: hidden; }
+  .ranking-bar-fill { height: 100%; border-radius: 2px; opacity: 0.75; transition: width 0.4s; }
+  .ranking-meta { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--color-muted); }
 </style>
