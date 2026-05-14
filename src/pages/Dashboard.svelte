@@ -155,7 +155,7 @@
 
       <!-- Pills -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="card mb-3 tap-target" on:click={() => navigate('health', 'pills')}>
+      <div class="card mb-3 tap-target" on:click={() => navigate('health', 'hub')}>
         <div class="card-header">
           <span class="card-title">Таблетки</span>
           <span class="card-badge">{pillLogs.filter(l => !l.skipped).length}/{medications.length}</span>
@@ -176,24 +176,6 @@
               </div>
             {/each}
           </div>
-        {/if}
-      </div>
-
-      <!-- Sleep -->
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="card mb-3 tap-target" on:click={() => navigate('health', 'sleep')}>
-        <div class="card-header">
-          <span class="card-title">Сон</span>
-        </div>
-        {#if sleepLog}
-          <div class="sleep-display">
-            <span class="sleep-hours number-display">{formatSleep(sleepLog)}</span>
-            {#if sleepLog.quality}
-              <span class="sleep-quality">{'★'.repeat(sleepLog.quality)}{'☆'.repeat(5 - sleepLog.quality)}</span>
-            {/if}
-          </div>
-        {:else}
-          <p class="empty-hint">Не записан — тапни чтобы добавить</p>
         {/if}
       </div>
 

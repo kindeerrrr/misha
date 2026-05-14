@@ -41,27 +41,34 @@
     loading = false
   }
 
-  $: if (selectedDate) loadLogs(selectedDate)
+  $: if (!loading && selectedDate) loadLogs(selectedDate)
 
   function isTaken(med: Medication) {
     return logs.some(l => l.medication_id === med.id && !l.skipped)
   }
 
+  const togglingMeds = new Set<string>()
+
   async function toggleMed(med: Medication) {
-    if (!$user) return
-    const existing = logs.find(l => l.medication_id === med.id && !l.skipped)
-    if (existing) {
-      await supabase.from('medication_logs').delete().eq('id', existing.id)
-      logs = logs.filter(l => l.id !== existing.id)
-    } else {
-      const { data } = await supabase.from('medication_logs').insert({
-        user_id: $user.id,
-        medication_id: med.id,
-        taken_at: new Date().toISOString(),
-        skipped: false,
-        date: selectedDate,
-      }).select().single()
-      if (data) logs = [...logs, data]
+    if (!$user || togglingMeds.has(med.id)) return
+    togglingMeds.add(med.id)
+    try {
+      const existing = logs.find(l => l.medication_id === med.id && !l.skipped)
+      if (existing) {
+        await supabase.from('medication_logs').delete().eq('id', existing.id)
+        logs = logs.filter(l => l.id !== existing.id)
+      } else {
+        const { data } = await supabase.from('medication_logs').insert({
+          user_id: $user.id,
+          medication_id: med.id,
+          taken_at: new Date().toISOString(),
+          skipped: false,
+          date: selectedDate,
+        }).select().single()
+        if (data) logs = [...logs, data]
+      }
+    } finally {
+      togglingMeds.delete(med.id)
     }
   }
 

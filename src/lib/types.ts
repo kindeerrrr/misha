@@ -320,4 +320,4 @@ export interface CreditPayment {
 
 export type Theme = 'latte' | 'sage' | 'light' | 'dark'
 export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'habits' | 'cat' | 'media' | 'settings' | 'hub'
-export type HealthTab = 'pills' | 'sleep' | 'measurements' | 'workouts' | 'doctors' | 'research' | 'checkups'
+export type HealthTab = 'hub' | 'pills' | 'sleep' | 'measurements' | 'workouts' | 'doctors' | 'research' | 'checkups'

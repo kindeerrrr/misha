@@ -8,6 +8,7 @@
 
   let emotions: EmotionEntry[] = []
   let dayReport: DayReport | null = null
+  let pastReports: DayReport[] = []
   let loading = true
   let showEmoModal = false
   let showDayModal = false
@@ -42,12 +43,14 @@
   async function load() {
     if (!$user) return
     const uid = $user.id
-    const [emoRes, drRes] = await Promise.all([
+    const [emoRes, drRes, pastDrRes] = await Promise.all([
       supabase.from('emotion_entries').select('*').eq('user_id', uid).order('recorded_at', { ascending: false }).limit(50),
       supabase.from('day_reports').select('*').eq('user_id', uid).eq('date', todayDate).maybeSingle(),
+      supabase.from('day_reports').select('*').eq('user_id', uid).neq('date', todayDate).order('date', { ascending: false }).limit(14),
     ])
     emotions = emoRes.data ?? []
     dayReport = drRes.data
+    pastReports = pastDrRes.data ?? []
     if (dayReport) {
       drOverall = dayReport.overall ?? 0
       drEnergy = dayReport.energy ?? 0
@@ -123,10 +126,16 @@
   function formatDate(d: string): string {
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
-    const ds = yesterday.toISOString().slice(0, 10)
-    if (d === ds) return 'Вчера'
-    return new Date(d).toLocaleDateString('ru', { weekday: 'long', day: 'numeric', month: 'short' })
+    const yd = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`
+    if (d === yd) return 'Вчера'
+    return new Date(d + 'T12:00:00').toLocaleDateString('ru', { weekday: 'long', day: 'numeric', month: 'short' })
   }
+
+  function reportForDate(date: string): DayReport | undefined {
+    return pastReports.find(r => r.date === date)
+  }
+
+  const SCORE_LABELS: Record<number, string> = { 1: 'плохо', 2: 'так себе', 3: 'нормально', 4: 'хорошо', 5: 'отлично' }
 
   onMount(load)
 </script>
@@ -199,13 +208,28 @@
       <section class="history mt-4">
         <p class="label mb-2">История</p>
         {#each groupByDate(pastEmotions()) as [date, entries]}
+          {@const rep = reportForDate(date)}
           <div class="history-day">
-            <span class="history-date">{formatDate(date)}</span>
+            <div class="history-top">
+              <span class="history-date">{formatDate(date)}</span>
+              {#if rep?.overall}
+                <span class="history-score">{rep.overall}/5 · {SCORE_LABELS[rep.overall] ?? ''}</span>
+              {/if}
+            </div>
             <div class="emo-strip">
               {#each entries as e}
                 <span class="emo-emoji" title={e.note ?? ''}>{e.emoji}</span>
               {/each}
+              {#each entries.filter(e => e.note) as e}
+                <span class="history-note">"{e.note}"</span>
+              {/each}
             </div>
+            {#if rep?.highlight}
+              <p class="history-highlight">✦ {rep.highlight}</p>
+            {/if}
+            {#if rep?.gratitude}
+              <p class="history-gratitude">{rep.gratitude}</p>
+            {/if}
           </div>
         {/each}
       </section>
@@ -378,14 +402,41 @@
 
   .history-day {
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.625rem 0;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 0.75rem 0;
     border-bottom: 1px solid var(--color-border);
   }
 
-  .history-date { font-size: 0.8125rem; color: var(--color-muted); min-width: 6rem; }
-  .emo-strip { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+  .history-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .history-date { font-size: 0.8125rem; color: var(--color-muted); }
+  .history-score { font-size: 0.75rem; color: var(--color-accent); font-family: "JetBrains Mono", monospace; }
+
+  .emo-strip { display: flex; gap: 0.375rem; flex-wrap: wrap; align-items: center; }
+
+  .history-note {
+    font-size: 0.75rem;
+    color: var(--color-muted);
+    font-style: italic;
+  }
+
+  .history-highlight {
+    font-size: 0.8125rem;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .history-gratitude {
+    font-size: 0.75rem;
+    color: var(--color-muted);
+    margin: 0;
+    font-style: italic;
+  }
 
   .emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.375rem; }
   .emoji-btn { font-size: 1.5rem; background: var(--color-card); border: 1.5px solid var(--color-border); border-radius: 0.75rem; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.1s; }

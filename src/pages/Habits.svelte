@@ -17,22 +17,30 @@
 
   const DAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
+  function localDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
   function getWeekDates(offset: number): string[] {
     const now = new Date()
     const dayOfWeek = now.getDay() // 0=Sun
-    const monday = new Date(now)
-    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + offset * 7)
-    monday.setHours(0, 0, 0, 0)
+    const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1
     return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday)
-      d.setDate(monday.getDate() + i)
-      return d.toISOString().slice(0, 10)
+      const d = new Date(now)
+      d.setDate(now.getDate() - diff + i + offset * 7)
+      return localDateStr(d)
     })
   }
 
-  $: weekDates = getWeekDates(weekOffset)
-  $: weekStart = weekDates[0]
-  $: weekEnd = weekDates[6]
+  let weekDates: string[] = getWeekDates(0)
+  let weekStart = weekDates[0]
+  let weekEnd = weekDates[6]
+
+  $: {
+    weekDates = getWeekDates(weekOffset)
+    weekStart = weekDates[0]
+    weekEnd = weekDates[6]
+  }
 
   function weekLabel(dates: string[]): string {
     if (!dates.length) return ''

@@ -11,7 +11,36 @@
   let showModal = false
 
   const todayDate = today()
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  type Period = 'day' | 'week' | 'month'
+  let period: Period = 'week'
+
+  function periodStart(p: Period): string {
+    const d = new Date()
+    if (p === 'day') return todayDate
+    if (p === 'week') {
+      d.setDate(d.getDate() - 6)
+    } else {
+      d.setDate(1)
+    }
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  }
+
+  async function loadExpenses() {
+    if (!$user) return
+    const start = periodStart(period)
+    const res = await supabase.from('expenses')
+      .select('*, expense_categories(name, emoji, group_name)')
+      .eq('user_id', $user.id)
+      .gte('date', start)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+    expenses = (res.data ?? []).map((e: Expense & { expense_categories?: ExpenseCategory }) => ({
+      ...e, category: e.expense_categories
+    }))
+  }
+
+  const weekAgo = periodStart('week')
 
   // Form
   let amount = ''
@@ -23,19 +52,15 @@
 
   async function load() {
     if (!$user) return
-    const uid = $user.id
-    const [catRes, expRes] = await Promise.all([
-      supabase.from('expense_categories').select('*').eq('user_id', uid).order('sort_order'),
-      supabase.from('expenses').select('*, expense_categories(name, emoji, group_name)')
-        .eq('user_id', uid).gte('date', weekAgo)
-        .order('date', { ascending: false }).order('created_at', { ascending: false }),
+    const [catRes] = await Promise.all([
+      supabase.from('expense_categories').select('*').eq('user_id', $user.id).order('sort_order'),
     ])
     categories = catRes.data ?? []
-    expenses = (expRes.data ?? []).map((e: Expense & { expense_categories?: ExpenseCategory }) => ({
-      ...e, category: e.expense_categories
-    }))
+    await loadExpenses()
     loading = false
   }
+
+  $: if (!loading && period) loadExpenses()
 
   async function saveExpense() {
     if (!$user || !amount) return
@@ -68,20 +93,22 @@
     return categories.filter(c => c.is_quick).slice(0, 8)
   }
 
-  function weekTotal() {
+  function periodLabel(p: Period): string {
+    if (p === 'day') return 'сегодня'
+    if (p === 'week') return 'за 7 дней'
+    return 'за месяц'
+  }
+
+  function totalExpenses() {
     return expenses.filter(e => !e.tx_type || e.tx_type === 'expense').reduce((s, e) => s + e.amount, 0)
   }
 
-  function weekIncome() {
+  function totalIncome() {
     return expenses.filter(e => e.tx_type === 'income').reduce((s, e) => s + e.amount, 0)
   }
 
-  function weekSavings() {
+  function totalSavings() {
     return expenses.filter(e => e.tx_type === 'saving').reduce((s, e) => s + e.amount, 0)
-  }
-
-  function todayTotal() {
-    return expenses.filter(e => e.date === todayDate && (!e.tx_type || e.tx_type === 'expense')).reduce((s, e) => s + e.amount, 0)
   }
 
   function groupByDate() {
@@ -125,21 +152,28 @@
     <button class="add-btn" on:click={() => showModal = true}>+ Запись</button>
   </header>
 
+  <!-- Period selector -->
+  <div class="period-tabs">
+    <button class="period-tab" class:active={period === 'day'} on:click={() => period = 'day'}>День</button>
+    <button class="period-tab" class:active={period === 'week'} on:click={() => period = 'week'}>Неделя</button>
+    <button class="period-tab" class:active={period === 'month'} on:click={() => period = 'month'}>Месяц</button>
+  </div>
+
   <!-- Summary -->
   <div class="summary-row">
     <div class="summary-card">
-      <span class="label">Расходы / неделя</span>
-      <span class="summary-amount number-display">{weekTotal().toLocaleString('ru')} ₽</span>
+      <span class="label">Расходы · {periodLabel(period)}</span>
+      <span class="summary-amount number-display">{totalExpenses().toLocaleString('ru')} ₽</span>
     </div>
     <div class="summary-card income">
-      <span class="label">Доходы / неделя</span>
-      <span class="summary-amount number-display" style="color:var(--color-success)">{weekIncome().toLocaleString('ru')} ₽</span>
+      <span class="label">Доходы · {periodLabel(period)}</span>
+      <span class="summary-amount number-display" style="color:var(--color-success)">{totalIncome().toLocaleString('ru')} ₽</span>
     </div>
   </div>
-  {#if weekSavings() > 0}
+  {#if totalSavings() > 0}
     <div class="saving-row">
-      <span class="label">Накопления за неделю</span>
-      <span class="number-display" style="color:var(--color-accent2)">{weekSavings().toLocaleString('ru')} ₽</span>
+      <span class="label">Накопления · {periodLabel(period)}</span>
+      <span class="number-display" style="color:var(--color-accent2)">{totalSavings().toLocaleString('ru')} ₽</span>
     </div>
   {/if}
 
@@ -262,6 +296,31 @@
     cursor: pointer; transition: opacity 0.15s;
   }
   .add-btn:active { opacity: 0.8; }
+
+  .period-tabs {
+    display: flex;
+    gap: 0.375rem;
+    margin-bottom: 0.875rem;
+  }
+
+  .period-tab {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+    background: var(--color-card);
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .period-tab.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+  }
 
   .summary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; }
 
