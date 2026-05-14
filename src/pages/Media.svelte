@@ -126,7 +126,11 @@
       if (data) items = items.map(i => i.id === editItem!.id ? data : i)
     } else {
       const { data } = await supabase.from('media_items').insert(payload).select().single()
-      if (data) items = [data, ...items]
+      if (data) {
+        items = [data, ...items]
+        activeStatus = fStatus  // switch to the tab showing the new item
+        activeType = null
+      }
     }
     showModal = false
     saving = false
@@ -329,11 +333,13 @@
     {/each}
   </div>
 
-  {#if !loading && typesInCurrentTab().length > 1}
+  {#if !loading && items.length > 0}
     <div class="type-filter-row">
       <button class="filter-chip" class:active={activeType === null} on:click={() => activeType = null}>Все</button>
-      {#each typesInCurrentTab() as t}
-        <button class="filter-chip" class:active={activeType === t} on:click={() => activeType = t}>{typeFilterLabel[t]}</button>
+      {#each ALL_TYPES as t}
+        {#if items.some(i => i.type === t)}
+          <button class="filter-chip" class:active={activeType === t} on:click={() => activeType = t}>{typeFilterLabel[t]}</button>
+        {/if}
       {/each}
     </div>
   {/if}
