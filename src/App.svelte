@@ -14,6 +14,11 @@
   import Settings from './pages/Settings.svelte'
   import Hub from './pages/Hub.svelte'
   import Toast from './components/ui/Toast.svelte'
+  import type { NavTab } from './lib/types'
+
+  // Mount each tab once on first visit, then keep it alive (hidden)
+  let visited: Partial<Record<NavTab, true>> = {}
+  $: if ($user && $activeTab) visited = { ...visited, [$activeTab]: true }
 </script>
 
 {#if $authLoading}
@@ -25,25 +30,15 @@
 {:else}
   <OfflineBanner />
   <div class="app-shell">
-    {#if $activeTab === 'dashboard'}
-      <Dashboard />
-    {:else if $activeTab === 'health'}
-      <Health />
-    {:else if $activeTab === 'emotions'}
-      <Emotions />
-    {:else if $activeTab === 'finances'}
-      <Finances />
-    {:else if $activeTab === 'habits'}
-      <Habits />
-    {:else if $activeTab === 'media'}
-      <Media />
-    {:else if $activeTab === 'cat'}
-      <Cat />
-    {:else if $activeTab === 'settings'}
-      <Settings />
-    {:else if $activeTab === 'hub'}
-      <Hub />
-    {/if}
+    <div class:hidden={$activeTab !== 'dashboard'}>{#if visited.has('dashboard')}<Dashboard />{/if}</div>
+    <div class:hidden={$activeTab !== 'health'}>{#if visited.has('health')}<Health />{/if}</div>
+    <div class:hidden={$activeTab !== 'emotions'}>{#if visited.has('emotions')}<Emotions />{/if}</div>
+    <div class:hidden={$activeTab !== 'finances'}>{#if visited.has('finances')}<Finances />{/if}</div>
+    <div class:hidden={$activeTab !== 'habits'}>{#if visited.has('habits')}<Habits />{/if}</div>
+    <div class:hidden={$activeTab !== 'media'}>{#if visited.has('media')}<Media />{/if}</div>
+    <div class:hidden={$activeTab !== 'cat'}>{#if visited.has('cat')}<Cat />{/if}</div>
+    <div class:hidden={$activeTab !== 'settings'}>{#if visited.has('settings')}<Settings />{/if}</div>
+    <div class:hidden={$activeTab !== 'hub'}>{#if visited.has('hub')}<Hub />{/if}</div>
   </div>
   <BottomNav />
   <Toast />
@@ -53,6 +48,10 @@
   .app-shell {
     min-height: 100dvh;
     background-color: var(--color-bg);
+  }
+
+  .hidden {
+    display: none;
   }
 
   .splash {
