@@ -19,6 +19,7 @@
   let quality = 0
   let notes = ''
   let saving = false
+  let saveError = ''
 
   async function load() {
     if (!$user) return
@@ -50,10 +51,10 @@
   async function save() {
     if (!$user) return
     saving = true
+    saveError = ''
     const bedIso = bedtime ? (() => {
       const d = new Date()
       const [h, m] = bedtime.split(':').map(Number)
-      // if bedtime is late evening (>= 20), it's yesterday relative to wake
       d.setHours(h, m, 0, 0)
       return d.toISOString()
     })() : null
@@ -75,15 +76,22 @@
       notes: notes || null,
     }
 
-    if (todayLog) {
-      const { data } = await supabase.from('sleep_logs').update(payload).eq('id', todayLog.id).select().single()
-      if (data) { todayLog = data; logs = logs.map(l => l.id === data.id ? data : l) }
-    } else {
-      const { data } = await supabase.from('sleep_logs').insert(payload).select().single()
-      if (data) { todayLog = data; logs = [data, ...logs] }
+    try {
+      if (todayLog) {
+        const { data, error } = await supabase.from('sleep_logs').update(payload).eq('id', todayLog.id).select().single()
+        if (error) throw error
+        if (data) { todayLog = data; logs = logs.map(l => l.id === data.id ? data : l) }
+      } else {
+        const { data, error } = await supabase.from('sleep_logs').insert(payload).select().single()
+        if (error) throw error
+        if (data) { todayLog = data; logs = [data, ...logs] }
+      }
+      showModal = false
+    } catch (e: any) {
+      saveError = e.message ?? 'Ошибка сохранения'
+    } finally {
+      saving = false
     }
-    showModal = false
-    saving = false
   }
 
   function formatDuration(mins: number | null): string {
@@ -180,6 +188,10 @@
       <textarea id="sleep-notes" bind:value={notes} rows="2" placeholder="Долго не мог уснуть, часто просыпался..." />
     </div>
 
+    {#if saveError}
+      <p class="save-error">{saveError}</p>
+    {/if}
+
     <button class="btn-primary" on:click={save} disabled={saving}>
       {saving ? 'Сохраняю...' : 'Сохранить'}
     </button>
@@ -274,6 +286,16 @@
   .form-field { display: flex; flex-direction: column; gap: 0.375rem; }
 
   .time-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+
+  .save-error {
+    font-size: 0.8125rem;
+    color: var(--color-danger);
+    text-align: center;
+    margin: 0;
+    padding: 0.5rem;
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border-radius: 0.625rem;
+  }
 
   .calc-duration {
     font-size: 0.875rem;

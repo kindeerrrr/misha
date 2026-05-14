@@ -249,7 +249,7 @@
 </Modal>
 
 <style>
-  .page-shell { max-width: 480px; margin: 0 auto; padding: 0 1rem 6rem; }
+  .page-shell { max-width: 480px; margin: 0 auto; padding: 0 1.375rem 6rem; }
 
   .page-header {
     display: flex; align-items: center; justify-content: space-between;

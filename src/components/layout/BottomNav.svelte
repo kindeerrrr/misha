@@ -1,13 +1,14 @@
 <script lang="ts">
   import { activeTab, navigate } from '../../stores/nav'
+  import { icons } from '../../lib/icons'
   import type { NavTab } from '../../lib/types'
 
   const tabs: { id: NavTab; label: string; icon: string }[] = [
-    { id: 'dashboard', label: 'Главная',  icon: '⌂' },
-    { id: 'health',    label: 'Здоровье', icon: '♡' },
-    { id: 'emotions',  label: 'День',     icon: '✦' },
-    { id: 'finances',  label: 'Деньги',   icon: '◎' },
-    { id: 'hub',       label: 'Все',      icon: '⠿' },
+    { id: 'dashboard', label: 'Главная',  icon: icons.home },
+    { id: 'health',    label: 'Здоровье', icon: icons.heart },
+    { id: 'emotions',  label: 'День',     icon: icons.sun },
+    { id: 'finances',  label: 'Деньги',   icon: icons.wallet },
+    { id: 'hub',       label: 'Все',      icon: icons.grid },
   ]
 </script>
 
@@ -19,7 +20,7 @@
       on:click={() => navigate(tab.id)}
       aria-label={tab.label}
     >
-      <span class="tab-icon">{tab.icon}</span>
+      <span class="tab-icon">{@html tab.icon}</span>
       <span class="tab-label">{tab.label}</span>
     </button>
   {/each}
@@ -59,7 +60,18 @@
   .tab-item.active { color: var(--color-accent); }
   .tab-item:active { opacity: 0.6; }
 
-  .tab-icon { font-size: 1.125rem; line-height: 1; }
+  .tab-icon {
+    width: 1.375rem;
+    height: 1.375rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tab-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+  }
 
   .tab-label {
     font-family: "Source Serif 4", serif;

@@ -18,10 +18,6 @@ function createThemeStore() {
   return {
     subscribe,
     set: apply,
-    toggle() {
-      const current = localStorage.getItem(STORAGE_KEY) as Theme
-      apply(current === 'latte' ? 'sage' : 'latte')
-    },
   }
 }
 

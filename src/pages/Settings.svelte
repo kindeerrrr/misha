@@ -4,6 +4,14 @@
   import { theme } from '../stores/theme'
   import { signOut } from '../stores/user'
   import { user } from '../stores/user'
+  import type { Theme } from '../lib/types'
+
+  const THEMES: { id: Theme; label: string; bg: string; accent: string }[] = [
+    { id: 'light',  label: 'Светлая', bg: '#FFFFFF',  accent: '#007AFF' },
+    { id: 'dark',   label: 'Тёмная',  bg: '#1C1C1E',  accent: '#0A84FF' },
+    { id: 'latte',  label: 'Латте',   bg: '#FAF5EE',  accent: '#B85A3E' },
+    { id: 'sage',   label: 'Шалфей',  bg: '#F4F1EA',  accent: '#6D8F70' },
+  ]
 
   async function handleSignOut() {
     await signOut()
@@ -15,27 +23,20 @@
 
     <section>
       <p class="label mb-2">Тема</p>
-      <Card>
-        <div class="theme-row">
-          <div class="theme-preview" class:active={$theme === 'latte'}>
-            <div class="swatch latte" />
-            <span>Латте</span>
-          </div>
+      <div class="theme-grid">
+        {#each THEMES as t}
           <button
-            class="theme-toggle"
-            on:click={() => theme.toggle()}
-            aria-label="Переключить тему"
+            class="theme-card"
+            class:active={$theme === t.id}
+            on:click={() => theme.set(t.id)}
           >
-            <div class="toggle-track" class:sage={$theme === 'sage'}>
-              <div class="toggle-thumb" />
+            <div class="theme-preview" style="background:{t.bg}">
+              <div class="theme-accent-dot" style="background:{t.accent}" />
             </div>
+            <span class="theme-label">{t.label}</span>
           </button>
-          <div class="theme-preview" class:active={$theme === 'sage'}>
-            <div class="swatch sage" />
-            <span>Шалфей</span>
-          </div>
-        </div>
-      </Card>
+        {/each}
+      </div>
     </section>
 
     <section class="mt-4">
@@ -53,7 +54,7 @@
       </button>
     </section>
 
-    <p class="version-label">misha v0.1 · made with ♡</p>
+    <p class="version-label">misha v0.1 · made with love</p>
   </div>
 </PageShell>
 
@@ -64,71 +65,55 @@
     gap: 0.25rem;
   }
 
-  .theme-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
+  .theme-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.625rem;
   }
 
-  .theme-preview {
+  .theme-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.375rem;
-    font-size: 0.8125rem;
-    color: var(--color-muted);
-    transition: color 0.15s;
-  }
-
-  .theme-preview.active {
-    color: var(--color-text);
-    font-weight: 400;
-  }
-
-  .swatch {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 0.75rem;
-    border: 2px solid var(--color-border);
-  }
-
-  .swatch.latte { background: linear-gradient(135deg, #FAF5EE 50%, #B85A3E 50%); }
-  .swatch.sage  { background: linear-gradient(135deg, #F4F1EA 50%, #6D8F70 50%); }
-
-  .theme-toggle {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem;
-  }
-
-  .toggle-track {
-    width: 3rem;
-    height: 1.75rem;
-    background-color: var(--color-accent);
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--color-card);
+    border: 1.5px solid var(--color-border);
     border-radius: 1rem;
-    position: relative;
-    transition: background-color 0.2s;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .theme-card.active {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+  .theme-card:active { transform: scale(0.97); }
+
+  .theme-preview {
+    width: 100%;
+    height: 3.5rem;
+    border-radius: 0.625rem;
+    border: 1px solid rgba(0,0,0,0.08);
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 0.375rem;
   }
 
-  .toggle-track.sage {
-    background-color: #6D8F70;
-  }
-
-  .toggle-thumb {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 1.25rem;
-    height: 1.25rem;
-    background: white;
+  .theme-accent-dot {
+    width: 1rem;
+    height: 1rem;
     border-radius: 50%;
-    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  .toggle-track.sage .toggle-thumb {
-    transform: translateX(1.25rem);
+  .theme-label {
+    font-size: 0.8125rem;
+    color: var(--color-text);
+  }
+  .theme-card.active .theme-label {
+    color: var(--color-accent);
+    font-weight: 500;
   }
 
   .account-row {
@@ -147,4 +132,8 @@
     color: var(--color-muted);
     margin-top: 2rem;
   }
+
+  .mt-4 { margin-top: 1rem; }
+  .mt-6 { margin-top: 1.5rem; }
+  .mb-2 { margin-bottom: 0.5rem; }
 </style>
