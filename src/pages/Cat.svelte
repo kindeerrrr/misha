@@ -110,10 +110,13 @@
     return `${y} ${y === 1 ? 'год' : y < 5 ? 'года' : 'лет'}`
   }
 
+  let loadError = ''
+
   async function load() {
     if (!$user) return
-    const res = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('created_at')
-    profiles = res.data ?? []
+    const { data, error } = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('created_at')
+    if (error) { loadError = error.message; loading = false; return }
+    profiles = data ?? []
     if (profiles.length === 1) {
       await openPet(profiles[0])
     }
@@ -321,7 +324,9 @@
 </script>
 
 <div class="page-shell">
-  {#if loading}
+  {#if loadError}
+    <div class="load-error mt-4">Ошибка загрузки: {loadError}</div>
+  {:else if loading}
     <div class="skeleton mt-4" style="height:10rem" />
 
   {:else if view === 'list'}
@@ -854,6 +859,12 @@
   }
   .chip.selected {
     background: var(--color-accent); border-color: var(--color-accent); color: white;
+  }
+
+  .load-error {
+    padding: 1rem; background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.3); border-radius: 1rem;
+    color: #ef4444; font-size: 0.875rem;
   }
 
   .save-error {
