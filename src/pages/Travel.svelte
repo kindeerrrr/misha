@@ -175,6 +175,9 @@
   let showBagModal = false
   let showItemModal = false
   let editingTrip: Trip | null = null
+  let editingSpot: TripSpot | null = null
+  let editingBag: PackingBag | null = null
+  let editingItem: PackingItem | null = null
 
   // ── Trip form ──────────────────────────────────────────────────────────────
   let fTitle = ''
@@ -196,6 +199,7 @@
 
   // ── Bag form ──────────────────────────────────────────────────────────────
   let fBagName = ''
+  let fBagWeightLimit = ''
 
   // ── Item form ─────────────────────────────────────────────────────────────
   let fItemName = ''
@@ -209,7 +213,6 @@
 
   // ── Derived ───────────────────────────────────────────────────────────────
   $: grouped = groupByMonth(trips)
-  $: upcoming = trips.filter(isUpcoming)
   $: tripSpots = spots.filter(s => s.trip_id === activeTrip?.id)
   $: filteredSpots = spotFilter ? tripSpots.filter(s => s.category === spotFilter) : tripSpots
   $: groupedSpots = groupByDate(filteredSpots)
@@ -219,12 +222,12 @@
   $: photoDocs = tripDocs.filter(d => d.file_type === 'photo')
   $: pdfDocs   = tripDocs.filter(d => d.file_type === 'pdf')
 
-  function itemsForBag(bagId: string | null): PackingItem[] {
-    return tripItems.filter(i => i.bag_id === bagId).sort((a, b) => a.sort_order - b.sort_order)
-  }
-  function packedCount(bagId: string | null): number {
-    return itemsForBag(bagId).filter(i => i.packed).length
-  }
+  // Reactive bag/item grouping — avoids calling functions inside {#each} that won't re-trigger
+  $: looseItems = tripItems.filter(i => i.bag_id === null).sort((a, b) => a.sort_order - b.sort_order)
+  $: enrichedBags = tripBags.map(bag => {
+    const items = tripItems.filter(i => i.bag_id === bag.id).sort((a, b) => a.sort_order - b.sort_order)
+    return { bag, items, packed: items.filter(i => i.packed).length }
+  })
 
   // ── Data loading ──────────────────────────────────────────────────────────
   async function loadTrips() {
@@ -307,45 +310,72 @@
 
   // ── Spot CRUD ─────────────────────────────────────────────────────────────
   function openAddSpot() {
+    editingSpot = null
     fSpotName = ''; fSpotCategory = 'place'
     fSpotDate = activeTrip?.start_date ?? todayDate
     fSpotStartTime = ''; fSpotEndTime = ''; fSpotAddress = ''; fSpotNotes = ''
     showSpotModal = true
   }
 
+  function openEditSpot(spot: TripSpot) {
+    editingSpot = spot
+    fSpotName = spot.name; fSpotCategory = spot.category; fSpotDate = spot.date
+    fSpotStartTime = spot.start_time ?? ''; fSpotEndTime = spot.end_time ?? ''
+    fSpotAddress = spot.address ?? ''; fSpotNotes = spot.notes ?? ''
+    showSpotModal = true
+  }
+
   async function saveSpot() {
     if (!fSpotName.trim() || !activeTrip) return
     const payload = {
-      user_id: $user!.id,
-      trip_id: activeTrip.id,
-      name: fSpotName.trim(),
-      category: fSpotCategory,
-      date: fSpotDate,
-      start_time: fSpotStartTime || null,
-      end_time: fSpotEndTime || null,
-      address: fSpotAddress.trim() || null,
-      notes: fSpotNotes.trim() || null,
-      sort_order: tripSpots.length,
+      name: fSpotName.trim(), category: fSpotCategory, date: fSpotDate,
+      start_time: fSpotStartTime || null, end_time: fSpotEndTime || null,
+      address: fSpotAddress.trim() || null, notes: fSpotNotes.trim() || null,
     }
-    const { data } = await supabase.from('trip_spots').insert(payload).select().single()
-    if (data) spots = [...spots, data]
+    if (editingSpot) {
+      const { data } = await supabase.from('trip_spots').update(payload).eq('id', editingSpot.id).select().single()
+      if (data) spots = spots.map(s => s.id === data.id ? data : s)
+    } else {
+      const { data } = await supabase.from('trip_spots').insert({
+        ...payload, user_id: $user!.id, trip_id: activeTrip.id, sort_order: tripSpots.length,
+      }).select().single()
+      if (data) spots = [...spots, data]
+    }
     showSpotModal = false
   }
 
   async function deleteSpot(id: string) {
     await supabase.from('trip_spots').delete().eq('id', id)
     spots = spots.filter(s => s.id !== id)
+    showSpotModal = false
   }
 
   // ── Bag CRUD ──────────────────────────────────────────────────────────────
-  function openAddBag() { fBagName = ''; showBagModal = true }
+  function openAddBag() {
+    editingBag = null; fBagName = ''; fBagWeightLimit = ''; showBagModal = true
+  }
+
+  function openEditBag(bag: PackingBag) {
+    editingBag = bag; fBagName = bag.name
+    fBagWeightLimit = bag.weight_limit_kg != null ? String(bag.weight_limit_kg) : ''
+    showBagModal = true
+  }
 
   async function saveBag() {
     if (!fBagName.trim() || !activeTrip) return
-    const { data } = await supabase.from('packing_bags').insert({
-      user_id: $user!.id, trip_id: activeTrip.id, name: fBagName.trim(), sort_order: tripBags.length,
-    }).select().single()
-    if (data) bags = [...bags, data]
+    const wl = fBagWeightLimit ? parseFloat(fBagWeightLimit) : null
+    if (editingBag) {
+      const { data } = await supabase.from('packing_bags')
+        .update({ name: fBagName.trim(), weight_limit_kg: wl })
+        .eq('id', editingBag.id).select().single()
+      if (data) bags = bags.map(b => b.id === data.id ? data : b)
+    } else {
+      const { data } = await supabase.from('packing_bags').insert({
+        user_id: $user!.id, trip_id: activeTrip.id, name: fBagName.trim(),
+        weight_limit_kg: wl, sort_order: tripBags.length,
+      }).select().single()
+      if (data) bags = [...bags, data]
+    }
     showBagModal = false
   }
 
@@ -353,25 +383,35 @@
     await supabase.from('packing_bags').delete().eq('id', id)
     bags = bags.filter(b => b.id !== id)
     packItems = packItems.map(i => i.bag_id === id ? { ...i, bag_id: null } : i)
+    showBagModal = false
   }
 
   // ── Item CRUD ─────────────────────────────────────────────────────────────
   function openAddItem(defaultBagId?: string) {
-    fItemName = ''; fItemBagId = defaultBagId ?? ''
+    editingItem = null; fItemName = ''; fItemBagId = defaultBagId ?? ''
+    showItemModal = true
+  }
+
+  function openEditItem(item: PackingItem) {
+    editingItem = item; fItemName = item.name; fItemBagId = item.bag_id ?? ''
     showItemModal = true
   }
 
   async function saveItem() {
     if (!fItemName.trim() || !activeTrip) return
-    const { data } = await supabase.from('packing_items').insert({
-      user_id: $user!.id,
-      trip_id: activeTrip.id,
-      bag_id: fItemBagId || null,
-      name: fItemName.trim(),
-      packed: false,
-      sort_order: tripItems.length,
-    }).select().single()
-    if (data) packItems = [...packItems, data]
+    if (editingItem) {
+      const { data } = await supabase.from('packing_items')
+        .update({ name: fItemName.trim(), bag_id: fItemBagId || null })
+        .eq('id', editingItem.id).select().single()
+      if (data) packItems = packItems.map(i => i.id === data.id ? data : i)
+    } else {
+      const { data } = await supabase.from('packing_items').insert({
+        user_id: $user!.id, trip_id: activeTrip.id,
+        bag_id: fItemBagId || null, name: fItemName.trim(),
+        packed: false, sort_order: tripItems.length,
+      }).select().single()
+      if (data) packItems = [...packItems, data]
+    }
     showItemModal = false
   }
 
@@ -384,6 +424,7 @@
   async function deleteItem(id: string) {
     await supabase.from('packing_items').delete().eq('id', id)
     packItems = packItems.filter(i => i.id !== id)
+    showItemModal = false
   }
 
   // ── Documents ─────────────────────────────────────────────────────────────
@@ -510,9 +551,9 @@
           <p class="day-label">{dayGroup.label}</p>
           <div class="spot-list">
             {#each dayGroup.spots as spot}
-              {@const cat = categoryFor(spot.category)}
-              <div class="spot-card">
-                <div class="spot-icon">{@html cat.icon}</div>
+              <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+              <div class="spot-card" on:click={() => openEditSpot(spot)}>
+                <div class="spot-icon">{@html categoryFor(spot.category).icon}</div>
                 <div class="spot-info">
                   <span class="spot-name">{spot.name}</span>
                   {#if spot.start_time}
@@ -522,7 +563,6 @@
                     <span class="spot-address">{spot.address}</span>
                   {/if}
                 </div>
-                <button class="delete-btn-sm" on:click={() => deleteSpot(spot.id)} aria-label="Удалить">×</button>
               </div>
             {/each}
           </div>
@@ -531,18 +571,17 @@
 
     <!-- ── PACK tab ── -->
     {:else if tripTab === 'pack'}
-      {@const looseItems = itemsForBag(null)}
-      {#if tripBags.length === 0 && looseItems.length === 0}
+      {#if enrichedBags.length === 0 && looseItems.length === 0}
         <div class="empty-state small">
           <p class="empty-sub">Чемодан пуст — добавь вещи</p>
         </div>
       {/if}
 
-      {#if looseItems.length > 0 || tripBags.length === 0}
+      {#if looseItems.length > 0 || enrichedBags.length === 0}
         <div class="bag-section">
           <div class="bag-header">
             <span class="bag-name">Общее</span>
-            <span class="bag-count">{packedCount(null)}/{looseItems.length}</span>
+            <span class="bag-count">{looseItems.filter(i => i.packed).length}/{looseItems.length}</span>
           </div>
           <div class="item-list">
             {#each looseItems as item}
@@ -550,8 +589,8 @@
                 <button class="checkbox" class:checked={item.packed} on:click={() => toggleItem(item)}>
                   {#if item.packed}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>{/if}
                 </button>
-                <span class="item-name" class:packed={item.packed}>{item.name}</span>
-                <button class="delete-btn-sm" on:click={() => deleteItem(item.id)} aria-label="Удалить">×</button>
+                <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+                <span class="item-name" class:packed={item.packed} on:click={() => openEditItem(item)}>{item.name}</span>
               </div>
             {/each}
           </div>
@@ -559,25 +598,24 @@
         </div>
       {/if}
 
-      {#each tripBags as bag}
-        {@const bagItems = itemsForBag(bag.id)}
+      {#each enrichedBags as { bag, items, packed }}
         <div class="bag-section">
           <div class="bag-header">
-            <span class="bag-name">{bag.name}</span>
-            <span class="bag-count">{packedCount(bag.id)}/{bagItems.length}</span>
-            <button class="delete-btn-sm" on:click={() => deleteBag(bag.id)} aria-label="Удалить сумку">×</button>
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <span class="bag-name clickable" on:click={() => openEditBag(bag)}>{bag.name}</span>
+            <span class="bag-count">{packed}/{items.length}{bag.weight_limit_kg ? ` · лимит ${bag.weight_limit_kg} кг` : ''}</span>
           </div>
           <div class="progress-bar">
-            <div class="progress-fill" style="width:{bagItems.length ? (packedCount(bag.id)/bagItems.length)*100 : 0}%"></div>
+            <div class="progress-fill" style="width:{items.length ? (packed/items.length)*100 : 0}%"></div>
           </div>
           <div class="item-list">
-            {#each bagItems as item}
+            {#each items as item}
               <div class="item-row">
                 <button class="checkbox" class:checked={item.packed} on:click={() => toggleItem(item)}>
                   {#if item.packed}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>{/if}
                 </button>
-                <span class="item-name" class:packed={item.packed}>{item.name}</span>
-                <button class="delete-btn-sm" on:click={() => deleteItem(item.id)} aria-label="Удалить">×</button>
+                <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+                <span class="item-name" class:packed={item.packed} on:click={() => openEditItem(item)}>{item.name}</span>
               </div>
             {/each}
           </div>
@@ -688,7 +726,7 @@
 </Modal>
 
 <!-- Spot modal -->
-<Modal title="Добавить место" open={showSpotModal} on:close={() => showSpotModal = false}>
+<Modal title={editingSpot ? 'Редактировать место' : 'Добавить место'} open={showSpotModal} on:close={() => showSpotModal = false}>
   <div class="form-group">
     <label class="form-label">Название *</label>
     <input class="form-input" bind:value={fSpotName} placeholder="Голубая мечеть…" />
@@ -724,25 +762,37 @@
     <textarea class="form-input" rows="2" bind:value={fSpotNotes} placeholder="…"></textarea>
   </div>
   <div class="form-actions">
-    <button class="btn-primary" on:click={saveSpot}>Добавить</button>
+    {#if editingSpot}
+      {@const spotToDelete = editingSpot}
+      <button class="btn-danger" on:click={() => deleteSpot(spotToDelete.id)}>Удалить</button>
+    {/if}
+    <button class="btn-primary" on:click={saveSpot}>{editingSpot ? 'Сохранить' : 'Добавить'}</button>
   </div>
 </Modal>
 
 <!-- Bag modal -->
-<Modal title="Новая сумка" open={showBagModal} on:close={() => showBagModal = false}>
+<Modal title={editingBag ? 'Редактировать багаж' : 'Новая сумка'} open={showBagModal} on:close={() => showBagModal = false}>
   <div class="form-group">
     <label class="form-label">Название</label>
     <input class="form-input" bind:value={fBagName} placeholder="Чемодан, Рюкзак, Ручная кладь…" />
   </div>
+  <div class="form-group">
+    <label class="form-label">Лимит веса (кг)</label>
+    <input class="form-input" type="number" step="0.1" bind:value={fBagWeightLimit} placeholder="Напр. 10" />
+  </div>
   <div class="form-actions">
+    {#if editingBag}
+      {@const bagToDelete = editingBag}
+      <button class="btn-danger" on:click={() => deleteBag(bagToDelete.id)}>Удалить</button>
+    {/if}
     <button class="btn-primary" on:click={saveBag}>Сохранить</button>
   </div>
 </Modal>
 
 <!-- Item modal -->
-<Modal title="Добавить вещь" open={showItemModal} on:close={() => showItemModal = false}>
+<Modal title={editingItem ? 'Редактировать вещь' : 'Добавить вещь'} open={showItemModal} on:close={() => showItemModal = false}>
   <div class="form-group">
-    <label class="form-label">Вещь *</label>
+    <label class="form-label">Название *</label>
     <input class="form-input" bind:value={fItemName} placeholder="Паспорт, Зарядка…" />
   </div>
   {#if tripBags.length > 0}
@@ -757,7 +807,11 @@
     </div>
   {/if}
   <div class="form-actions">
-    <button class="btn-primary" on:click={saveItem}>Добавить</button>
+    {#if editingItem}
+      {@const itemToDelete = editingItem}
+      <button class="btn-danger" on:click={() => deleteItem(itemToDelete.id)}>Удалить</button>
+    {/if}
+    <button class="btn-primary" on:click={saveItem}>{editingItem ? 'Сохранить' : 'Добавить'}</button>
   </div>
 </Modal>
 
@@ -938,7 +992,11 @@
     background: var(--color-card);
     border: 1px solid var(--color-border);
     border-radius: 0.875rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
   }
+  .spot-card:active { opacity: 0.7; }
 
   .spot-icon {
     width: 1.75rem;
@@ -977,6 +1035,7 @@
   }
 
   .bag-name { font-size: 0.9375rem; font-weight: 500; color: var(--color-text); flex: 1; }
+  .bag-name.clickable { cursor: pointer; text-decoration: underline dotted var(--color-muted); }
   .bag-count { font-size: 0.75rem; color: var(--color-muted); }
 
   .progress-bar {
@@ -1019,7 +1078,7 @@
   .checkbox.checked { background: var(--color-accent); border-color: var(--color-accent); }
   .checkbox :global(svg) { width: 0.75rem; height: 0.75rem; stroke: white; }
 
-  .item-name { flex: 1; font-size: 0.9rem; color: var(--color-text); }
+  .item-name { flex: 1; font-size: 0.9rem; color: var(--color-text); cursor: pointer; }
   .item-name.packed { text-decoration: line-through; color: var(--color-muted); }
 
   .add-item-btn {

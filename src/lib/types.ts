@@ -331,6 +331,7 @@ export interface PackingBag {
   user_id: string
   trip_id: string
   name: string
+  weight_limit_kg: number | null
   sort_order: number
   created_at: string
 }
