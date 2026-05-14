@@ -25,6 +25,9 @@
 
   const typeLabel: Record<MediaType, string> = { book: 'Книга', film: 'Фильм', series: 'Сериал' }
   const statusLabel: Record<MediaStatus, string> = { want: 'Хочу', in_progress: 'Читаю / Смотрю', done: 'Готово' }
+  const ALL_STATUSES: MediaStatus[] = ['in_progress', 'want', 'done']
+  const ALL_TYPES: MediaType[] = ['book', 'film', 'series']
+  const FORM_STATUSES: MediaStatus[] = ['want', 'in_progress', 'done']
 
   async function load() {
     if (!$user) return
@@ -102,7 +105,7 @@
 
   <!-- Status tabs -->
   <div class="status-tabs">
-    {#each (['in_progress', 'want', 'done'] as MediaStatus[]) as s}
+    {#each ALL_STATUSES as s}
       <button
         class="status-tab"
         class:active={activeStatus === s}
@@ -167,7 +170,7 @@
     <div class="form-field">
       <label class="label">Тип</label>
       <div class="type-tabs">
-        {#each (['book', 'film', 'series'] as MediaType[]) as t}
+        {#each ALL_TYPES as t}
           <button class="type-tab" class:active={fType === t} on:click={() => fType = t}>
             {typeLabel[t]}
           </button>
@@ -178,7 +181,7 @@
     <div class="form-field">
       <label class="label">Статус</label>
       <div class="type-tabs">
-        {#each (['want', 'in_progress', 'done'] as MediaStatus[]) as s}
+        {#each FORM_STATUSES as s}
           <button class="type-tab" class:active={fStatus === s} on:click={() => fStatus = s}>
             {s === 'want' ? 'Хочу' : s === 'in_progress' ? 'Читаю' : 'Готово'}
           </button>

@@ -7,6 +7,11 @@
 
   type CatTab = 'profile' | 'vaccines' | 'health' | 'grooming' | 'food'
 
+  const CAT_TABS: CatTab[] = ['profile', 'vaccines', 'health', 'grooming', 'food']
+  const CAT_TAB_LABELS: Record<CatTab, string> = {
+    profile: 'Профиль', vaccines: 'Прививки', health: 'Здоровье', grooming: 'Уход', food: 'Корм'
+  }
+
   let activeTab: CatTab = 'profile'
   let loading = true
 
@@ -160,9 +165,9 @@
 
   <!-- Sub-tabs -->
   <nav class="cat-tabs">
-    {#each (['profile', 'vaccines', 'health', 'grooming', 'food'] as CatTab[]) as tab}
+    {#each CAT_TABS as tab}
       <button class="cat-tab" class:active={activeTab === tab} on:click={() => activeTab = tab}>
-        {{ profile: 'Профиль', vaccines: 'Прививки', health: 'Здоровье', grooming: 'Уход', food: 'Корм' }[tab]}
+        {CAT_TAB_LABELS[tab]}
       </button>
     {/each}
   </nav>
