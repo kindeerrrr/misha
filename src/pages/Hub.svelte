@@ -1,64 +1,166 @@
 <script lang="ts">
   import { navigate } from '../stores/nav'
   import { icons } from '../lib/icons'
-  import type { NavTab } from '../lib/types'
 
-  type Section = { id: NavTab; title: string; sub: string; icon: string; soon?: boolean }
+  type Section = { id: string; title: string; sub: string; icon: string }
 
-  const sections: Section[] = [
-    { id: 'dashboard', title: 'Главная',     sub: 'Дашборд дня',               icon: icons.home },
-    { id: 'health',    title: 'Здоровье',    sub: 'Таблетки, сон, тренировки', icon: icons.heart },
-    { id: 'emotions',  title: 'День',        sub: 'Настроение и итоги',         icon: icons.sun },
-    { id: 'finances',  title: 'Деньги',      sub: 'Расходы и доходы',           icon: icons.wallet },
-    { id: 'habits',    title: 'Привычки',    sub: 'Ежедневный трекер',          icon: icons.check_circle },
-    { id: 'media',     title: 'Медиа',       sub: 'Книги, фильмы, сериалы',     icon: icons.book },
-    { id: 'cat',       title: 'Животные',    sub: 'Питомцы, уход, здоровье',    icon: icons.paw },
-    { id: 'settings',  title: 'Настройки',   sub: 'Тема и параметры',           icon: icons.settings },
-    { id: 'travel',    title: 'Путешествия', sub: 'Поездки и маршруты',         icon: icons.plane },
-    { id: 'credits',   title: 'Кредиты',     sub: 'Долги и платежи',            icon: icons.credit_card },
+  const daily: Section[]   = [
+    { id: 'dashboard', title: 'Главная',   sub: 'Дашборд дня',          icon: icons.home },
+    { id: 'emotions',  title: 'День',      sub: 'Настроение и итоги',    icon: icons.sun },
+  ]
+  const health: Section[]  = [
+    { id: 'health',    title: 'Здоровье',  sub: 'Таблетки, сон, спорт', icon: icons.heart },
+    { id: 'habits',    title: 'Привычки',  sub: 'Ежедневный трекер',     icon: icons.check_circle },
+  ]
+  const finance: Section[] = [
+    { id: 'finances',  title: 'Деньги',    sub: 'Расходы и доходы',      icon: icons.wallet },
+    { id: 'credits',   title: 'Кредиты',   sub: 'Долги и платежи',       icon: icons.credit_card },
+  ]
+  const leisure: Section[] = [
+    { id: 'media',     title: 'Медиа',     sub: 'Книги, фильмы, сериалы', icon: icons.book },
+    { id: 'travel',    title: 'Путешествия', sub: 'Поездки и маршруты',  icon: icons.plane },
   ]
 </script>
 
 <div class="page-shell">
   <header class="hub-header">
-    <h1 class="hub-title">Все разделы</h1>
-    <p class="hub-sub">Быстрый доступ ко всему</p>
+    <div>
+      <h1 class="hub-title">Все разделы</h1>
+      <p class="hub-sub">Быстрый доступ ко всему</p>
+    </div>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="settings-btn" on:click={() => navigate('settings')} title="Настройки">
+      {@html icons.settings}
+    </div>
   </header>
 
-  <div class="hub-grid">
-    {#each sections as s}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div
-        class="hub-card"
-        class:soon={s.soon}
-        on:click={() => !s.soon && navigate(s.id)}
-      >
-        {#if s.soon}
-          <span class="soon-badge">Скоро</span>
-        {/if}
-        <div class="hub-symbol">{@html s.icon}</div>
-        <div class="hub-text">
-          <span class="hub-name">{s.title}</span>
-          <span class="hub-desc">{s.sub}</span>
+  <div class="hub-section">
+    <span class="hub-section-label">Ежедневное</span>
+    <div class="hub-grid">
+      {#each daily as s}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="hub-card" on:click={() => navigate(s.id)}>
+          <div class="hub-symbol">{@html s.icon}</div>
+          <div class="hub-text">
+            <span class="hub-name">{s.title}</span>
+            <span class="hub-desc">{s.sub}</span>
+          </div>
         </div>
+      {/each}
+    </div>
+  </div>
+
+  <div class="hub-section">
+    <span class="hub-section-label">Здоровье</span>
+    <div class="hub-grid">
+      {#each health as s}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="hub-card" on:click={() => navigate(s.id)}>
+          <div class="hub-symbol">{@html s.icon}</div>
+          <div class="hub-text">
+            <span class="hub-name">{s.title}</span>
+            <span class="hub-desc">{s.sub}</span>
+          </div>
+        </div>
+      {/each}
+    </div>
+  </div>
+
+  <div class="hub-section">
+    <span class="hub-section-label">Финансы</span>
+    <div class="hub-grid">
+      {#each finance as s}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="hub-card" on:click={() => navigate(s.id)}>
+          <div class="hub-symbol">{@html s.icon}</div>
+          <div class="hub-text">
+            <span class="hub-name">{s.title}</span>
+            <span class="hub-desc">{s.sub}</span>
+          </div>
+        </div>
+      {/each}
+    </div>
+  </div>
+
+  <div class="hub-section">
+    <span class="hub-section-label">Досуг</span>
+    <div class="hub-grid">
+      {#each leisure as s}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="hub-card" on:click={() => navigate(s.id)}>
+          <div class="hub-symbol">{@html s.icon}</div>
+          <div class="hub-text">
+            <span class="hub-name">{s.title}</span>
+            <span class="hub-desc">{s.sub}</span>
+          </div>
+        </div>
+      {/each}
+    </div>
+  </div>
+
+  <!-- Животные — во всю ширину -->
+  <div class="hub-section">
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="hub-card wide" on:click={() => navigate('cat')}>
+      <div class="hub-symbol">{@html icons.paw}</div>
+      <div class="hub-text">
+        <span class="hub-name">Животные</span>
+        <span class="hub-desc">Питомцы, уход, здоровье</span>
       </div>
-    {/each}
+    </div>
   </div>
 </div>
 
 <style>
-  .hub-header { padding: 1.5rem 0 1.25rem; }
+  .page-shell {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 1.375rem 6rem;
+    min-height: 100dvh;
+  }
+
+  .hub-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem 0 1rem;
+  }
 
   .hub-title {
     font-family: "Fraunces", serif;
     font-size: 1.75rem;
     font-weight: 300;
     color: var(--color-text);
-    margin: 0 0 0.25rem;
+    margin: 0 0 0.125rem;
     letter-spacing: -0.02em;
   }
 
   .hub-sub { font-size: 0.875rem; color: var(--color-muted); margin: 0; }
+
+  .settings-btn {
+    width: 2.25rem; height: 2.25rem;
+    color: var(--color-muted);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 0.625rem;
+    transition: color 0.15s;
+  }
+  .settings-btn:active { color: var(--color-accent); }
+  .settings-btn :global(svg) { width: 1.375rem; height: 1.375rem; }
+
+  /* ── Sections ── */
+  .hub-section { margin-bottom: 1.25rem; }
+
+  .hub-section-label {
+    display: block;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+    margin-bottom: 0.5rem;
+    padding-left: 0.25rem;
+  }
 
   .hub-grid {
     display: grid;
@@ -77,13 +179,16 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: all 0.15s;
-    position: relative;
-    overflow: hidden;
     min-height: 6.5rem;
   }
-
-  .hub-card:not(.soon):active { transform: scale(0.97); opacity: 0.85; }
-  .hub-card.soon { opacity: 0.45; cursor: default; }
+  .hub-card.wide {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+    min-height: auto;
+  }
+  .hub-card:active { transform: scale(0.97); opacity: 0.85; }
 
   .hub-symbol {
     width: 2rem;
@@ -98,7 +203,6 @@
     border: 1px solid var(--color-border);
     padding: 0.375rem;
   }
-
   .hub-symbol :global(svg) { width: 100%; height: 100%; }
 
   .hub-text {
@@ -106,8 +210,8 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    margin-top: auto;
   }
+  .hub-card:not(.wide) .hub-text { margin-top: auto; }
 
   .hub-name {
     font-size: 0.9375rem;
@@ -118,18 +222,4 @@
   }
 
   .hub-desc { font-size: 0.6875rem; color: var(--color-muted); line-height: 1.3; }
-
-  .soon-badge {
-    position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
-    font-size: 0.5rem;
-    color: var(--color-muted);
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: 0.375rem;
-    padding: 0.125rem 0.375rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
 </style>
