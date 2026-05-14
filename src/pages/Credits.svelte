@@ -207,6 +207,10 @@
   let fPayPaid = true
   let fPayNotes = ''
 
+  // ── Sort ──────────────────────────────────────────────────────────────────
+  type SortMode = 'date' | 'name' | 'amount'
+  let sortMode: SortMode = 'date'
+
   // ── Derived ───────────────────────────────────────────────────────────────
   $: activePayments = payments.filter(p => p.credit_id === activeCredit?.id)
   $: upcomingPayments = activePayments.filter(p => !p.paid).sort((a, b) => a.date.localeCompare(b.date))
@@ -218,6 +222,17 @@
     const t = totalWithInterest(c)
     return s + (t !== null ? t : c.remaining)
   }, 0)
+  $: sortedCredits = [...credits].sort((a, b) => {
+    if (sortMode === 'name') return a.name.localeCompare(b.name, 'ru')
+    if (sortMode === 'amount') return b.remaining - a.remaining
+    // 'date': sort by next payment date ascending; credits without payment_day go last
+    const da = nextPaymentDate(a.payment_day)
+    const db = nextPaymentDate(b.payment_day)
+    if (!da && !db) return 0
+    if (!da) return 1
+    if (!db) return -1
+    return da.localeCompare(db)
+  })
 
   // ── Load ───────────────────────────────────────────────────────────────────
   async function load() {
@@ -448,6 +463,14 @@
       </button>
     </header>
 
+    {#if credits.length > 1}
+      <div class="sort-row">
+        <button class="sort-chip" class:active={sortMode === 'date'}   on:click={() => sortMode = 'date'}>По дате</button>
+        <button class="sort-chip" class:active={sortMode === 'name'}   on:click={() => sortMode = 'name'}>По алфавиту</button>
+        <button class="sort-chip" class:active={sortMode === 'amount'} on:click={() => sortMode = 'amount'}>По сумме</button>
+      </div>
+    {/if}
+
     {#if loading}
       <p class="muted-hint">Загрузка...</p>
     {:else if credits.length === 0}
@@ -476,7 +499,7 @@
       </div>
 
       <div class="credit-list">
-        {#each credits as credit}
+        {#each sortedCredits as credit}
           {@const pct = paidPct(credit)}
           {@const nextDate = nextPaymentDate(credit.payment_day)}
           {@const days = daysUntil(nextDate)}
@@ -1133,6 +1156,23 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
   }
   .toggle-btn.on .toggle-knob { transform: translateX(1.25rem); }
+
+  /* ── Sort chips ── */
+  .sort-row {
+    display: flex; gap: 0.375rem;
+    margin-bottom: 0.75rem;
+  }
+  .sort-chip {
+    padding: 0.3125rem 0.75rem;
+    font-size: 0.8125rem; font-family: inherit;
+    background: var(--color-card); border: 1px solid var(--color-border);
+    border-radius: 999px; cursor: pointer; color: var(--color-muted);
+    -webkit-tap-highlight-color: transparent; transition: all 0.15s;
+  }
+  .sort-chip.active {
+    background: var(--color-accent); border-color: var(--color-accent);
+    color: white;
+  }
 
   /* ── Empty/hints ── */
   .empty-state { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 3rem 1rem; }
