@@ -3,15 +3,17 @@
   import { supabase, today } from '../../lib/supabase'
   import { user } from '../../stores/user'
   import Modal from '../../components/ui/Modal.svelte'
+  import DateNav from '../../components/ui/DateNav.svelte'
   import type { Medication, MedicationLog, MedicationCriticality, MedicationFrequency, MedicationStatus } from '../../lib/types'
 
   let medications: Medication[] = []
-  let todayLogs: MedicationLog[] = []
+  let logs: MedicationLog[] = []
   let loading = true
   let showAddModal = false
   let showHistoryId = ''
 
   const todayDate = today()
+  let selectedDate = todayDate
 
   // Form state
   let newName = ''
@@ -22,36 +24,44 @@
   let newNotes = ''
   let saving = false
 
-  async function load() {
+  async function loadMeds() {
     if (!$user) return
-    const [medsRes, logsRes] = await Promise.all([
-      supabase.from('medications').select('*').eq('user_id', $user.id).order('criticality'),
-      supabase.from('medication_logs').select('*').eq('user_id', $user.id).eq('date', todayDate),
-    ])
-    medications = medsRes.data ?? []
-    todayLogs = logsRes.data ?? []
+    const res = await supabase.from('medications').select('*').eq('user_id', $user.id).order('criticality')
+    medications = res.data ?? []
+  }
+
+  async function loadLogs(date: string) {
+    if (!$user) return
+    const res = await supabase.from('medication_logs').select('*').eq('user_id', $user.id).eq('date', date)
+    logs = res.data ?? []
+  }
+
+  async function load() {
+    await Promise.all([loadMeds(), loadLogs(selectedDate)])
     loading = false
   }
 
+  $: if (selectedDate) loadLogs(selectedDate)
+
   function isTaken(med: Medication) {
-    return todayLogs.some(l => l.medication_id === med.id && !l.skipped)
+    return logs.some(l => l.medication_id === med.id && !l.skipped)
   }
 
   async function toggleMed(med: Medication) {
     if (!$user) return
-    const existing = todayLogs.find(l => l.medication_id === med.id && !l.skipped)
+    const existing = logs.find(l => l.medication_id === med.id && !l.skipped)
     if (existing) {
       await supabase.from('medication_logs').delete().eq('id', existing.id)
-      todayLogs = todayLogs.filter(l => l.id !== existing.id)
+      logs = logs.filter(l => l.id !== existing.id)
     } else {
       const { data } = await supabase.from('medication_logs').insert({
         user_id: $user.id,
         medication_id: med.id,
         taken_at: new Date().toISOString(),
         skipped: false,
-        date: todayDate,
+        date: selectedDate,
       }).select().single()
-      if (data) todayLogs = [...todayLogs, data]
+      if (data) logs = [...logs, data]
     }
   }
 
@@ -110,11 +120,11 @@
 </script>
 
 <div>
-  <!-- Today header -->
+  <!-- Date nav + progress -->
   <div class="today-header">
-    <h2 class="section-title">Сегодня</h2>
+    <DateNav date={selectedDate} on:change={e => selectedDate = e.detail} />
     <span class="progress-badge">
-      {todayLogs.filter(l => !l.skipped).length} / {medications.filter(m => m.status === 'active').length}
+      {logs.filter(l => !l.skipped).length} / {medications.filter(m => m.status === 'active').length}
     </span>
   </div>
 

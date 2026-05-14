@@ -4,16 +4,18 @@
   import { user } from '../stores/user'
   import { navigate } from '../stores/nav'
   import Card from '../components/ui/Card.svelte'
+  import DateNav from '../components/ui/DateNav.svelte'
   import type { Medication, MedicationLog, SleepLog, EmotionEntry, Expense } from '../lib/types'
 
   let medications: Medication[] = []
-  let todayLogs: MedicationLog[] = []
+  let pillLogs: MedicationLog[] = []
   let sleepLog: SleepLog | null = null
   let emotions: EmotionEntry[] = []
   let weekExpenses = 0
   let loading = true
 
   const todayDate = today()
+  let selectedPillDate = todayDate
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const greeting = (() => {
@@ -30,40 +32,48 @@
 
     const [medsRes, logsRes, sleepRes, emotRes, expRes] = await Promise.all([
       supabase.from('medications').select('*').eq('user_id', uid).eq('status', 'active'),
-      supabase.from('medication_logs').select('*').eq('user_id', uid).eq('date', todayDate),
+      supabase.from('medication_logs').select('*').eq('user_id', uid).eq('date', selectedPillDate),
       supabase.from('sleep_logs').select('*').eq('user_id', uid).eq('date', todayDate).maybeSingle(),
       supabase.from('emotion_entries').select('*').eq('user_id', uid).eq('date', todayDate).order('recorded_at', { ascending: false }),
       supabase.from('expenses').select('amount').eq('user_id', uid).gte('date', weekAgo),
     ])
 
     medications = medsRes.data ?? []
-    todayLogs = logsRes.data ?? []
+    pillLogs = logsRes.data ?? []
     sleepLog = sleepRes.data
     emotions = emotRes.data ?? []
     weekExpenses = (expRes.data ?? []).reduce((sum: number, r: {amount: number}) => sum + r.amount, 0)
     loading = false
   }
 
+  async function loadPillLogs(date: string) {
+    if (!$user) return
+    const res = await supabase.from('medication_logs').select('*').eq('user_id', $user.id).eq('date', date)
+    pillLogs = res.data ?? []
+  }
+
+  $: if (selectedPillDate && !loading) loadPillLogs(selectedPillDate)
+
   async function toggleMed(med: Medication) {
     if (!$user) return
-    const existing = todayLogs.find(l => l.medication_id === med.id && !l.skipped)
+    const existing = pillLogs.find(l => l.medication_id === med.id && !l.skipped)
     if (existing) {
       await supabase.from('medication_logs').delete().eq('id', existing.id)
-      todayLogs = todayLogs.filter(l => l.id !== existing.id)
+      pillLogs = pillLogs.filter(l => l.id !== existing.id)
     } else {
       const { data } = await supabase.from('medication_logs').insert({
         user_id: $user.id,
         medication_id: med.id,
         taken_at: new Date().toISOString(),
         skipped: false,
-        date: todayDate,
+        date: selectedPillDate,
       }).select().single()
-      if (data) todayLogs = [...todayLogs, data]
+      if (data) pillLogs = [...pillLogs, data]
     }
   }
 
   function isTaken(med: Medication) {
-    return todayLogs.some(l => l.medication_id === med.id && !l.skipped)
+    return pillLogs.some(l => l.medication_id === med.id && !l.skipped)
   }
 
   function formatSleep(log: SleepLog | null): string {
@@ -108,7 +118,11 @@
       <div class="card mb-3 tap-target" on:click={() => navigate('health', 'pills')}>
         <div class="card-header">
           <span class="card-title">Таблетки</span>
-          <span class="card-badge">{todayLogs.filter(l => !l.skipped).length}/{medications.length}</span>
+          <span class="card-badge">{pillLogs.filter(l => !l.skipped).length}/{medications.length}</span>
+        </div>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div on:click|stopPropagation class="date-nav-wrap">
+          <DateNav date={selectedPillDate} on:change={e => selectedPillDate = e.detail} />
         </div>
         {#if medications.length === 0}
           <p class="empty-hint">Добавь препараты в разделе Здоровье</p>
@@ -201,6 +215,8 @@
 </div>
 
 <style>
+  .date-nav-wrap { margin-bottom: 0.75rem; }
+
   .dash-header {
     display: flex;
     align-items: flex-start;
