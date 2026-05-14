@@ -107,7 +107,6 @@
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="card mb-3 tap-target" on:click={() => navigate('health', 'pills')}>
         <div class="card-header">
-          <span class="card-icon">💊</span>
           <span class="card-title">Таблетки</span>
           <span class="card-badge">{todayLogs.filter(l => !l.skipped).length}/{medications.length}</span>
         </div>
@@ -134,7 +133,6 @@
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="card mb-3 tap-target" on:click={() => navigate('health', 'sleep')}>
         <div class="card-header">
-          <span class="card-icon">😴</span>
           <span class="card-title">Сон прошлой ночью</span>
         </div>
         {#if sleepLog}
@@ -153,7 +151,6 @@
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="card tap-target" on:click={() => navigate('emotions')}>
         <div class="card-header">
-          <span class="card-icon">✦</span>
           <span class="card-title">Как ты сейчас?</span>
         </div>
         {#if emotions.length > 0}
@@ -176,7 +173,6 @@
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="card tap-target" on:click={() => navigate('finances')}>
         <div class="card-header">
-          <span class="card-icon">◎</span>
           <span class="card-title">Траты</span>
         </div>
         <div class="finance-row">
@@ -196,7 +192,6 @@
           rel="noopener"
           class="notion-link"
         >
-          <span>🗂</span>
           <span>Задачи в Notion</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
         </a>

@@ -9,13 +9,13 @@
   import Checkups from './Checkups.svelte'
 
   const tabs = [
-    { id: 'pills',        label: '💊', title: 'Таблетки' },
-    { id: 'sleep',        label: '😴', title: 'Сон' },
-    { id: 'measurements', label: '⚖️', title: 'Замеры' },
-    { id: 'workouts',     label: '🏃', title: 'Тренировки' },
-    { id: 'doctors',      label: '👩‍⚕️', title: 'Врачи' },
-    { id: 'research',     label: '🔬', title: 'Исследования' },
-    { id: 'checkups',     label: '🗓', title: 'Осмотры' },
+    { id: 'pills',        title: 'Таблетки' },
+    { id: 'sleep',        title: 'Сон' },
+    { id: 'measurements', title: 'Замеры' },
+    { id: 'workouts',     title: 'Тренировки' },
+    { id: 'doctors',      title: 'Врачи' },
+    { id: 'research',     title: 'Исследования' },
+    { id: 'checkups',     title: 'Осмотры' },
   ] as const
 </script>
 
@@ -29,7 +29,6 @@
         on:click={() => activeHealthTab.set(tab.id)}
         aria-label={tab.title}
       >
-        <span class="tab-emoji">{tab.label}</span>
         <span class="tab-text">{tab.title}</span>
       </button>
     {/each}

@@ -24,9 +24,6 @@
 
   // Type form
   let newTypeName = ''
-  let newTypeIcon = '🏋️'
-
-  const defaultIcons = ['🏋️','🧘','🏃','🏊','🚶','🚴','💃','⚽','🎾','🧗','🤸','🥊']
 
   async function load() {
     if (!$user) return
@@ -67,12 +64,12 @@
     const { data } = await supabase.from('workout_types').insert({
       user_id: $user.id,
       name: newTypeName.trim(),
-      icon: newTypeIcon,
+      icon: '',
       is_default: false,
     }).select().single()
     if (data) workoutTypes = [...workoutTypes, data]
     showTypeModal = false
-    newTypeName = ''; newTypeIcon = '🏋️'
+    newTypeName = ''
   }
 
   async function deleteLog(id: string) {
@@ -112,7 +109,7 @@
           class:selected={selTypeId === t.id}
           on:click={() => { selTypeId = t.id; showLogModal = true }}
         >
-          {t.icon} {t.name}
+          {t.name}
         </button>
       {/each}
       <button class="type-chip add-type" on:click={() => showTypeModal = true}>+ свой тип</button>
@@ -133,7 +130,6 @@
           <p class="label mb-1">{formatDate(date)}</p>
           {#each dayLogs as log}
             <div class="log-row">
-              <span class="log-icon">{log.workout_type?.icon ?? '🏋️'}</span>
               <span class="log-name">{log.workout_type?.name ?? '—'}</span>
               <span class="log-dur number-display">{log.duration_minutes}м</span>
               {#if log.intensity}
@@ -156,7 +152,6 @@
       <div class="type-grid">
         {#each workoutTypes as t}
           <button class="type-btn" class:selected={selTypeId === t.id} on:click={() => selTypeId = t.id}>
-            <span>{t.icon}</span>
             <span>{t.name}</span>
           </button>
         {/each}
@@ -192,13 +187,6 @@
 <!-- Add type modal -->
 <Modal title="Новый тип тренировки" open={showTypeModal} on:close={() => showTypeModal = false}>
   <div class="form-stack">
-    <div class="icon-picker">
-      {#each defaultIcons as ico}
-        <button class="icon-btn" class:selected={newTypeIcon === ico} on:click={() => newTypeIcon = ico}>
-          {ico}
-        </button>
-      {/each}
-    </div>
     <div class="form-field">
       <label class="label" for="type-name">Название</label>
       <input id="type-name" type="text" bind:value={newTypeName} placeholder="Например, Скандинавская ходьба" />

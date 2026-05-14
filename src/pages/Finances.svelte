@@ -178,8 +178,6 @@
             <div class="expense-row">
               {#if txIcon(exp.tx_type)}
                 <span class="tx-icon" style="color:{txColor(exp.tx_type)}">{txIcon(exp.tx_type)}</span>
-              {:else}
-                <span class="exp-emoji">{exp.category?.emoji ?? '◎'}</span>
               {/if}
               <div class="exp-info">
                 <span class="exp-cat" style="color:{txColor(exp.tx_type)}">
