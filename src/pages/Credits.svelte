@@ -282,6 +282,91 @@
     showToast('Удалено', 'success')
   }
 
+  // ── Early repayment ────────────────────────────────────────────────────────
+  let showEarlyModal = false
+  let fEarlyAmount = ''
+  let fEarlyAmountDisplay = ''
+  let fEarlyDate = todayDate
+  let fEarlyMode: 'term' | 'payment' = 'term' // уменьшить срок или платёж
+
+  $: earlyAmount = parseNum(fEarlyAmountDisplay || fEarlyAmount)
+  $: earlyNewRemaining = activeCredit ? Math.max(0, activeCredit.remaining - earlyAmount) : 0
+
+  $: earlyPreview = (() => {
+    if (!activeCredit || !earlyAmount || earlyAmount <= 0) return null
+    const c = activeCredit
+    const newRem = Math.max(0, c.remaining - earlyAmount)
+    if (newRem <= 0) return { paid: true, label: 'Кредит будет полностью закрыт' }
+
+    if (!c.monthly_payment) return null
+
+    if (fEarlyMode === 'term') {
+      // same monthly, fewer months
+      const newMonths = Math.ceil(newRem / c.monthly_payment)
+      const d = new Date()
+      d.setMonth(d.getMonth() + newMonths)
+      const newEnd = `${RU_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`
+      const savedMonths = (earlyPaymentsLeft ?? 0) - newMonths
+      return { paid: false, label: `Закроется ~${newEnd}`, sub: savedMonths > 0 ? `на ${savedMonths} мес. раньше` : null }
+    } else {
+      // same term, smaller monthly
+      const months = earlyPaymentsLeft ?? Math.ceil(newRem / c.monthly_payment)
+      if (months <= 0) return null
+      const newMonthly = Math.ceil(newRem / months)
+      const saved = c.monthly_payment - newMonthly
+      return { paid: false, label: `Новый платёж ~${fmtNum(newMonthly)} ₽/мес`, sub: saved > 0 ? `экономия ${fmtNum(saved)} ₽/мес` : null }
+    }
+  })()
+
+  // paymentsLeft is defined in the detail view block, need it here too
+  $: earlyPaymentsLeft = activeCredit ? remainingPaymentsCount(activeCredit) : null
+
+  function openEarlyRepayment() {
+    fEarlyAmount = ''; fEarlyAmountDisplay = ''
+    fEarlyDate = todayDate; fEarlyMode = 'term'
+    showEarlyModal = true
+  }
+
+  async function saveEarlyRepayment() {
+    if (!activeCredit || !earlyAmount) return
+    const c = activeCredit
+    const newRemaining = Math.max(0, c.remaining - earlyAmount)
+
+    // Log as a payment
+    const { data: payData } = await supabase.from('credit_payments').insert({
+      user_id: $user!.id, credit_id: c.id,
+      date: fEarlyDate, amount: earlyAmount, paid: true,
+      notes: 'Досрочное погашение',
+    }).select().single()
+    if (payData) payments = [payData, ...payments]
+
+    // Update remaining + optionally end_date or monthly_payment
+    const update: Record<string, unknown> = { remaining: newRemaining }
+
+    if (newRemaining <= 0) {
+      update.remaining = 0
+    } else if (c.monthly_payment && c.monthly_payment > 0) {
+      if (fEarlyMode === 'term') {
+        const newMonths = Math.ceil(newRemaining / c.monthly_payment)
+        const d = new Date()
+        d.setMonth(d.getMonth() + newMonths)
+        // find the payment_day in that month
+        const day = c.payment_day ?? 1
+        const newEnd = new Date(d.getFullYear(), d.getMonth(), Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()))
+        update.end_date = newEnd.toISOString().slice(0, 10)
+      } else {
+        const months = earlyPaymentsLeft ?? Math.ceil(newRemaining / c.monthly_payment)
+        if (months > 0) update.monthly_payment = Math.ceil(newRemaining / months)
+      }
+    }
+
+    const { data: updated } = await supabase.from('credits').update(update).eq('id', c.id).select().single()
+    if (updated) { credits = credits.map(x => x.id === updated.id ? updated : x); activeCredit = updated }
+
+    showEarlyModal = false
+    showToast(newRemaining <= 0 ? 'Кредит закрыт!' : 'Досрочный платёж внесён', 'success')
+  }
+
   // ── Payment CRUD ───────────────────────────────────────────────────────────
   function openAddPayment() {
     fPayDate = todayDate
@@ -523,6 +608,14 @@
       {/if}
     </div>
 
+    <!-- Early repayment button -->
+    {#if !activeCredit.is_complex && activeCredit.remaining > 0}
+      <button class="early-btn" on:click={openEarlyRepayment}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 5H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2v-4"/><path d="M17 3l4 4-4 4M21 7H9"/></svg>
+        Досрочное погашение
+      </button>
+    {/if}
+
     <!-- Upcoming (complex mode) -->
     {#if activeCredit.is_complex && upcomingPayments.length > 0}
       <div class="section-row">
@@ -720,6 +813,56 @@
     <button class="btn-primary" on:click={savePayment}>
       {fPayPaid ? 'Записать' : 'Запланировать'}
     </button>
+  </div>
+</Modal>
+
+<Modal title="Досрочное погашение" open={showEarlyModal} on:close={() => showEarlyModal = false}>
+  <div class="form-row">
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Сумма *</label>
+      <input
+        class="form-input"
+        type="text"
+        inputmode="numeric"
+        bind:value={fEarlyAmountDisplay}
+        on:blur={() => { fEarlyAmount = fEarlyAmountDisplay.replace(/\s/g,''); fEarlyAmountDisplay = fEarlyAmount ? formatInput(fEarlyAmount) : '' }}
+        placeholder="20 000"
+      />
+    </div>
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Дата</label>
+      <input class="form-input" type="date" bind:value={fEarlyDate} />
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">Что пересчитать</label>
+    <div class="mode-toggle">
+      <button
+        class="mode-btn"
+        class:active={fEarlyMode === 'term'}
+        on:click={() => fEarlyMode = 'term'}
+      >Уменьшить срок</button>
+      <button
+        class="mode-btn"
+        class:active={fEarlyMode === 'payment'}
+        on:click={() => fEarlyMode = 'payment'}
+      >Уменьшить платёж</button>
+    </div>
+  </div>
+
+  {#if earlyPreview}
+    <div class="early-preview" class:paid={earlyPreview.paid}>
+      <span class="early-preview-label">{earlyPreview.label}</span>
+      {#if earlyPreview.sub}<span class="early-preview-sub">{earlyPreview.sub}</span>{/if}
+      {#if !earlyPreview.paid && earlyNewRemaining > 0}
+        <span class="early-preview-remaining">Остаток: {fmtNum(earlyNewRemaining)} ₽</span>
+      {/if}
+    </div>
+  {/if}
+
+  <div class="form-actions">
+    <button class="btn-primary" on:click={saveEarlyRepayment}>Внести</button>
   </div>
 </Modal>
 
@@ -1011,4 +1154,52 @@
     cursor: pointer; font-family: inherit; -webkit-tap-highlight-color: transparent;
   }
   .btn-danger:active { opacity: 0.7; }
+
+  /* ── Early repayment ── */
+  .early-btn {
+    display: flex; align-items: center; gap: 0.5rem;
+    width: 100%; padding: 0.75rem 1rem;
+    background: var(--color-card); border: 1.5px dashed var(--color-accent);
+    border-radius: 1rem; cursor: pointer; font-family: inherit;
+    font-size: 0.9375rem; color: var(--color-accent);
+    -webkit-tap-highlight-color: transparent;
+    margin-bottom: 1.25rem; transition: opacity 0.15s;
+  }
+  .early-btn:active { opacity: 0.7; }
+  .early-btn svg { flex-shrink: 0; }
+
+  .mode-toggle {
+    display: flex; gap: 0.375rem;
+    background: var(--color-bg); border: 1px solid var(--color-border);
+    border-radius: 0.75rem; padding: 0.25rem;
+  }
+  .mode-btn {
+    flex: 1; padding: 0.5rem 0.75rem;
+    border: none; border-radius: 0.5rem;
+    font-size: 0.875rem; font-family: inherit;
+    cursor: pointer; color: var(--color-muted);
+    background: transparent; -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .mode-btn.active {
+    background: var(--color-card);
+    color: var(--color-text);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .early-preview {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 0.875rem;
+    padding: 0.875rem 1rem;
+    margin-bottom: 0.75rem;
+    display: flex; flex-direction: column; gap: 0.25rem;
+  }
+  .early-preview.paid { border-color: #43a047; background: #43a04710; }
+  .early-preview-label {
+    font-size: 1rem; font-weight: 500; color: var(--color-text);
+  }
+  .early-preview.paid .early-preview-label { color: #43a047; }
+  .early-preview-sub { font-size: 0.8125rem; color: var(--color-accent); }
+  .early-preview-remaining { font-size: 0.8125rem; color: var(--color-muted); }
 </style>
