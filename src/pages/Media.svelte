@@ -20,7 +20,11 @@
   let fStatus: MediaStatus = 'want'
   let fRating = 0
   let fNotes = ''
-  let fPages = ''
+  let fTotalPages = ''
+  let fCurrentPage = ''
+  let fSeasonsTotal = ''
+  let fCurrentSeason = ''
+  let fCurrentEpisode = ''
   let saving = false
 
   const typeLabel: Record<MediaType, string> = { book: 'Книга', film: 'Фильм', series: 'Сериал' }
@@ -43,7 +47,9 @@
   function openAdd(status: MediaStatus = activeStatus === 'in_progress' ? 'want' : activeStatus) {
     editItem = null
     fTitle = ''; fType = 'book'; fGenre = ''; fStatus = status
-    fRating = 0; fNotes = ''; fPages = ''
+    fRating = 0; fNotes = ''
+    fTotalPages = ''; fCurrentPage = ''
+    fSeasonsTotal = ''; fCurrentSeason = ''; fCurrentEpisode = ''
     showModal = true
   }
 
@@ -51,7 +57,11 @@
     editItem = item
     fTitle = item.title; fType = item.type; fGenre = item.genre ?? ''
     fStatus = item.status; fRating = item.rating ?? 0; fNotes = item.notes ?? ''
-    fPages = item.total_pages?.toString() ?? ''
+    fTotalPages = item.total_pages?.toString() ?? ''
+    fCurrentPage = item.current_page?.toString() ?? ''
+    fSeasonsTotal = item.seasons_total?.toString() ?? ''
+    fCurrentSeason = item.current_season?.toString() ?? ''
+    fCurrentEpisode = item.current_episode?.toString() ?? ''
     showModal = true
   }
 
@@ -66,7 +76,12 @@
       status: fStatus,
       rating: fRating || null,
       notes: fNotes || null,
-      total_pages: fPages ? parseInt(fPages) : null,
+      total_pages: fTotalPages ? parseInt(fTotalPages) : null,
+      current_page: fCurrentPage ? parseInt(fCurrentPage) : null,
+      seasons_total: fSeasonsTotal ? parseInt(fSeasonsTotal) : null,
+      current_season: fCurrentSeason ? parseInt(fCurrentSeason) : null,
+      current_episode: fCurrentEpisode ? parseInt(fCurrentEpisode) : null,
+      is_finished: fStatus === 'done',
       started_at: fStatus !== 'want' && !editItem?.started_at ? new Date().toISOString() : editItem?.started_at ?? null,
       finished_at: fStatus === 'done' && !editItem?.finished_at ? new Date().toISOString() : editItem?.finished_at ?? null,
     }
@@ -87,11 +102,16 @@
   }
 
   async function moveStatus(item: MediaItem, status: MediaStatus) {
-    const updates: Partial<MediaItem> = { status }
+    const updates: Partial<MediaItem> = { status, is_finished: status === 'done' }
     if (status !== 'want' && !item.started_at) updates.started_at = new Date().toISOString()
     if (status === 'done' && !item.finished_at) updates.finished_at = new Date().toISOString()
     await supabase.from('media_items').update(updates).eq('id', item.id)
     items = items.map(i => i.id === item.id ? { ...i, ...updates } : i)
+  }
+
+  function bookProgress(item: MediaItem): number | null {
+    if (!item.current_page || !item.total_pages) return null
+    return Math.round((item.current_page / item.total_pages) * 100)
   }
 
   onMount(load)
@@ -140,6 +160,28 @@
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <button class="del-btn" on:click|stopPropagation={() => deleteItem(item.id)}>×</button>
           </div>
+
+          <!-- Book progress -->
+          {#if item.type === 'book' && item.status === 'in_progress' && item.current_page}
+            <div class="progress-row">
+              {#if item.total_pages}
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: {bookProgress(item)}%" />
+                </div>
+                <span class="progress-label">{item.current_page} / {item.total_pages} стр.</span>
+              {:else}
+                <span class="progress-label">стр. {item.current_page}</span>
+              {/if}
+            </div>
+          {/if}
+
+          <!-- Series progress -->
+          {#if item.type === 'series' && item.status === 'in_progress' && (item.current_season || item.current_episode)}
+            <div class="series-progress">
+              {#if item.current_season}С{item.current_season}{item.seasons_total ? '/' + item.seasons_total : ''}{/if}{#if item.current_episode} · Серия {item.current_episode}{/if}
+            </div>
+          {/if}
+
           {#if item.rating}
             <div class="item-rating">{'★'.repeat(item.rating)}{'☆'.repeat(5 - item.rating)}</div>
           {/if}
@@ -183,7 +225,7 @@
       <div class="type-tabs">
         {#each FORM_STATUSES as s}
           <button class="type-tab" class:active={fStatus === s} on:click={() => fStatus = s}>
-            {s === 'want' ? 'Хочу' : s === 'in_progress' ? 'Читаю' : 'Готово'}
+            {s === 'want' ? 'Хочу' : s === 'in_progress' ? 'Читаю/смотрю' : 'Готово'}
           </button>
         {/each}
       </div>
@@ -194,11 +236,42 @@
       <input id="m-genre" type="text" bind:value={fGenre} placeholder="Фантастика, Триллер..." />
     </div>
 
+    <!-- Book fields -->
     {#if fType === 'book'}
-      <div class="form-field">
-        <label class="label" for="m-pages">Страниц (необязательно)</label>
-        <input id="m-pages" type="number" bind:value={fPages} placeholder="300" inputmode="numeric" />
+      <div class="form-row">
+        <div class="form-field">
+          <label class="label" for="m-pages">Всего страниц</label>
+          <input id="m-pages" type="number" bind:value={fTotalPages} placeholder="300" inputmode="numeric" />
+        </div>
+        {#if fStatus === 'in_progress'}
+          <div class="form-field">
+            <label class="label" for="m-cur-page">Текущая стр.</label>
+            <input id="m-cur-page" type="number" bind:value={fCurrentPage} placeholder="42" inputmode="numeric" />
+          </div>
+        {/if}
       </div>
+    {/if}
+
+    <!-- Series fields -->
+    {#if fType === 'series'}
+      <div class="form-row">
+        <div class="form-field">
+          <label class="label" for="m-seasons">Всего сезонов</label>
+          <input id="m-seasons" type="number" bind:value={fSeasonsTotal} placeholder="3" inputmode="numeric" />
+        </div>
+      </div>
+      {#if fStatus === 'in_progress'}
+        <div class="form-row">
+          <div class="form-field">
+            <label class="label" for="m-cur-s">Сезон</label>
+            <input id="m-cur-s" type="number" bind:value={fCurrentSeason} placeholder="1" inputmode="numeric" />
+          </div>
+          <div class="form-field">
+            <label class="label" for="m-cur-e">Серия</label>
+            <input id="m-cur-e" type="number" bind:value={fCurrentEpisode} placeholder="5" inputmode="numeric" />
+          </div>
+        </div>
+      {/if}
     {/if}
 
     {#if fStatus === 'done'}
@@ -271,6 +344,25 @@
   .item-rating { font-size: 0.875rem; color: var(--color-accent); letter-spacing: 1px; margin: 0.25rem 0; }
   .item-notes { font-size: 0.8125rem; color: var(--color-muted); margin: 0.25rem 0 0; }
 
+  .progress-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin: 0.375rem 0;
+  }
+  .progress-bar {
+    flex: 1; height: 3px; background: var(--color-border); border-radius: 2px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: var(--color-accent); border-radius: 2px;
+    transition: width 0.3s;
+  }
+  .progress-label { font-size: 0.75rem; color: var(--color-muted); white-space: nowrap; }
+
+  .series-progress {
+    font-size: 0.8125rem; color: var(--color-accent);
+    margin: 0.25rem 0;
+    font-family: "JetBrains Mono", monospace;
+  }
+
   .item-actions { margin-top: 0.625rem; display: flex; gap: 0.5rem; }
   .action-btn {
     padding: 0.375rem 0.75rem; border: 1px solid var(--color-accent);
@@ -285,7 +377,8 @@
   .type-tab.active { background: var(--color-accent); color: white; }
 
   .form-stack { display: flex; flex-direction: column; gap: 1rem; }
-  .form-field { display: flex; flex-direction: column; gap: 0.375rem; }
+  .form-field { display: flex; flex-direction: column; gap: 0.375rem; flex: 1; }
+  .form-row { display: flex; gap: 0.75rem; }
 
   .empty-state { padding: 2rem; text-align: center; color: var(--color-muted); background: var(--color-card); border-radius: 1.25rem; border: 1px dashed var(--color-border); }
 

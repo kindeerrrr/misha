@@ -11,11 +11,17 @@
   const CAT_TAB_LABELS: Record<CatTab, string> = {
     profile: 'Профиль', vaccines: 'Прививки', health: 'Здоровье', grooming: 'Уход', food: 'Корм'
   }
+  const GROOM_TYPES = ['Грумер', 'Стрижка когтей', 'Чистка ушей', 'Купание']
 
   let activeTab: CatTab = 'profile'
   let loading = true
 
-  let profile: CatProfile | null = null
+  // Multi-pet
+  let profiles: CatProfile[] = []
+  let selectedProfile: CatProfile | null = null
+  let isNewPet = false
+
+  // Per-pet data
   let vaccines: CatVaccine[] = []
   let healthEvents: CatHealthEvent[] = []
   let groomings: CatGrooming[] = []
@@ -27,47 +33,70 @@
 
   // Vaccine form
   let showVaccModal = false
+  let editingVacc: CatVaccine | null = null
   let vName = ''; let vDate = ''; let vNextDue = ''; let vClinic = ''; let vNotes = ''
   let savingVacc = false
 
   // Health form
   let showHealthModal = false
+  let editingHealth: CatHealthEvent | null = null
   let hDate = ''; let hDesc = ''; let hVet = false
   let savingHealth = false
 
   // Grooming form
   let showGroomModal = false
+  let editingGroom: CatGrooming | null = null
   let gDate = ''; let gType = 'Грумер'; let gNextDue = ''; let gNotes = ''
   let savingGroom = false
 
   // Food form
   let showFoodModal = false
+  let editingFood: CatFoodOrder | null = null
   let fDate = ''; let fBrand = ''; let fProduct = ''; let fQty = ''; let fPrice = ''; let fNext = ''
   let savingFood = false
 
-  const GROOM_TYPES = ['Грумер', 'Стрижка когтей', 'Чистка ушей', 'Купание']
-
   async function load() {
     if (!$user) return
-    const uid = $user.id
-    const [profRes, vaccRes, healthRes, groomRes, foodRes] = await Promise.all([
-      supabase.from('cat_profiles').select('*').eq('user_id', uid).maybeSingle(),
-      supabase.from('cat_vaccines').select('*').eq('user_id', uid).order('date', { ascending: false }),
-      supabase.from('cat_health_events').select('*').eq('user_id', uid).order('date', { ascending: false }),
-      supabase.from('cat_groomings').select('*').eq('user_id', uid).order('date', { ascending: false }),
-      supabase.from('cat_food_orders').select('*').eq('user_id', uid).order('date', { ascending: false }),
-    ])
-    profile = profRes.data
-    if (profile) {
-      pName = profile.name; pBreed = profile.breed ?? ''
-      pBirth = profile.birth_date ?? ''; pWeight = profile.weight_kg?.toString() ?? ''
-      pNotes = profile.notes ?? ''
+    const profRes = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('created_at')
+    profiles = profRes.data ?? []
+    if (profiles.length > 0) {
+      await selectPet(profiles[0])
     }
+    loading = false
+  }
+
+  function fillProfileForm(p: CatProfile) {
+    pName = p.name; pBreed = p.breed ?? ''
+    pBirth = p.birth_date ?? ''; pWeight = p.weight_kg?.toString() ?? ''
+    pNotes = p.notes ?? ''
+    isNewPet = false
+  }
+
+  async function selectPet(p: CatProfile) {
+    selectedProfile = p
+    fillProfileForm(p)
+    await loadPetData(p.id)
+  }
+
+  function startNewPet() {
+    selectedProfile = null
+    pName = ''; pBreed = ''; pBirth = ''; pWeight = ''; pNotes = ''
+    isNewPet = true
+    vaccines = []; healthEvents = []; groomings = []; foodOrders = []
+    activeTab = 'profile'
+  }
+
+  async function loadPetData(catId: string) {
+    const [vaccRes, healthRes, groomRes, foodRes] = await Promise.all([
+      supabase.from('cat_vaccines').select('*').eq('cat_id', catId).order('date', { ascending: false }),
+      supabase.from('cat_health_events').select('*').eq('cat_id', catId).order('date', { ascending: false }),
+      supabase.from('cat_groomings').select('*').eq('cat_id', catId).order('date', { ascending: false }),
+      supabase.from('cat_food_orders').select('*').eq('cat_id', catId).order('date', { ascending: false }),
+    ])
     vaccines = vaccRes.data ?? []
     healthEvents = healthRes.data ?? []
     groomings = groomRes.data ?? []
     foodOrders = foodRes.data ?? []
-    loading = false
   }
 
   async function saveProfile() {
@@ -81,66 +110,124 @@
       weight_kg: pWeight ? parseFloat(pWeight) : null,
       notes: pNotes || null,
     }
-    if (profile) {
-      const { data } = await supabase.from('cat_profiles').update(payload).eq('id', profile.id).select().single()
-      if (data) profile = data
+    if (selectedProfile) {
+      const { data } = await supabase.from('cat_profiles').update(payload).eq('id', selectedProfile.id).select().single()
+      if (data) {
+        selectedProfile = data
+        profiles = profiles.map(p => p.id === data.id ? data : p)
+      }
     } else {
       const { data } = await supabase.from('cat_profiles').insert(payload).select().single()
-      if (data) profile = data
+      if (data) {
+        profiles = [...profiles, data]
+        selectedProfile = data
+        isNewPet = false
+      }
     }
     savingProfile = false
   }
 
-  async function addVaccine() {
-    if (!$user || !vName.trim() || !vDate) return
+  // Vaccine
+  function openVacc(v?: CatVaccine) {
+    editingVacc = v ?? null
+    vName = v?.name ?? ''; vDate = v?.date ?? ''
+    vNextDue = v?.next_due ?? ''; vClinic = v?.clinic ?? ''; vNotes = v?.notes ?? ''
+    showVaccModal = true
+  }
+
+  async function saveVaccine() {
+    if (!$user || !selectedProfile || !vName.trim() || !vDate) return
     savingVacc = true
-    const { data } = await supabase.from('cat_vaccines').insert({
-      user_id: $user.id, name: vName.trim(), date: vDate,
+    const payload = {
+      user_id: $user.id, cat_id: selectedProfile.id,
+      name: vName.trim(), date: vDate,
       next_due: vNextDue || null, clinic: vClinic || null, notes: vNotes || null,
-    }).select().single()
-    if (data) vaccines = [data, ...vaccines]
-    showVaccModal = false
-    vName = ''; vDate = ''; vNextDue = ''; vClinic = ''; vNotes = ''
-    savingVacc = false
+    }
+    if (editingVacc) {
+      const { data } = await supabase.from('cat_vaccines').update(payload).eq('id', editingVacc.id).select().single()
+      if (data) vaccines = vaccines.map(v => v.id === editingVacc!.id ? data : v)
+    } else {
+      const { data } = await supabase.from('cat_vaccines').insert(payload).select().single()
+      if (data) vaccines = [data, ...vaccines]
+    }
+    showVaccModal = false; savingVacc = false
   }
 
-  async function addHealthEvent() {
-    if (!$user || !hDesc.trim() || !hDate) return
+  // Health
+  function openHealth(e?: CatHealthEvent) {
+    editingHealth = e ?? null
+    hDate = e?.date ?? ''; hDesc = e?.description ?? ''; hVet = e?.vet_visit ?? false
+    showHealthModal = true
+  }
+
+  async function saveHealthEvent() {
+    if (!$user || !selectedProfile || !hDesc.trim() || !hDate) return
     savingHealth = true
-    const { data } = await supabase.from('cat_health_events').insert({
-      user_id: $user.id, date: hDate, description: hDesc.trim(), vet_visit: hVet,
-    }).select().single()
-    if (data) healthEvents = [data, ...healthEvents]
-    showHealthModal = false
-    hDate = ''; hDesc = ''; hVet = false
-    savingHealth = false
+    const payload = {
+      user_id: $user.id, cat_id: selectedProfile.id,
+      date: hDate, description: hDesc.trim(), vet_visit: hVet,
+    }
+    if (editingHealth) {
+      const { data } = await supabase.from('cat_health_events').update(payload).eq('id', editingHealth.id).select().single()
+      if (data) healthEvents = healthEvents.map(e => e.id === editingHealth!.id ? data : e)
+    } else {
+      const { data } = await supabase.from('cat_health_events').insert(payload).select().single()
+      if (data) healthEvents = [data, ...healthEvents]
+    }
+    showHealthModal = false; savingHealth = false
   }
 
-  async function addGrooming() {
-    if (!$user || !gDate) return
+  // Grooming
+  function openGroom(g?: CatGrooming) {
+    editingGroom = g ?? null
+    gDate = g?.date ?? ''; gType = g?.type ?? 'Грумер'
+    gNextDue = g?.next_due ?? ''; gNotes = g?.notes ?? ''
+    showGroomModal = true
+  }
+
+  async function saveGrooming() {
+    if (!$user || !selectedProfile || !gDate) return
     savingGroom = true
-    const { data } = await supabase.from('cat_groomings').insert({
-      user_id: $user.id, date: gDate, type: gType,
+    const payload = {
+      user_id: $user.id, cat_id: selectedProfile.id,
+      date: gDate, type: gType,
       next_due: gNextDue || null, notes: gNotes || null,
-    }).select().single()
-    if (data) groomings = [data, ...groomings]
-    showGroomModal = false
-    gDate = ''; gType = 'Грумер'; gNextDue = ''; gNotes = ''
-    savingGroom = false
+    }
+    if (editingGroom) {
+      const { data } = await supabase.from('cat_groomings').update(payload).eq('id', editingGroom.id).select().single()
+      if (data) groomings = groomings.map(g => g.id === editingGroom!.id ? data : g)
+    } else {
+      const { data } = await supabase.from('cat_groomings').insert(payload).select().single()
+      if (data) groomings = [data, ...groomings]
+    }
+    showGroomModal = false; savingGroom = false
   }
 
-  async function addFoodOrder() {
-    if (!$user || !fBrand.trim() || !fDate) return
+  // Food
+  function openFood(f?: CatFoodOrder) {
+    editingFood = f ?? null
+    fDate = f?.date ?? ''; fBrand = f?.brand ?? ''; fProduct = f?.product ?? ''
+    fQty = f?.quantity ?? ''; fPrice = f?.price?.toString() ?? ''; fNext = f?.next_order ?? ''
+    showFoodModal = true
+  }
+
+  async function saveFoodOrder() {
+    if (!$user || !selectedProfile || !fBrand.trim() || !fDate) return
     savingFood = true
-    const { data } = await supabase.from('cat_food_orders').insert({
-      user_id: $user.id, date: fDate, brand: fBrand.trim(),
+    const payload = {
+      user_id: $user.id, cat_id: selectedProfile.id,
+      date: fDate, brand: fBrand.trim(),
       product: fProduct || fBrand.trim(), quantity: fQty || null,
       price: fPrice ? parseFloat(fPrice) : null, next_order: fNext || null,
-    }).select().single()
-    if (data) foodOrders = [data, ...foodOrders]
-    showFoodModal = false
-    fDate = ''; fBrand = ''; fProduct = ''; fQty = ''; fPrice = ''; fNext = ''
-    savingFood = false
+    }
+    if (editingFood) {
+      const { data } = await supabase.from('cat_food_orders').update(payload).eq('id', editingFood.id).select().single()
+      if (data) foodOrders = foodOrders.map(f => f.id === editingFood!.id ? data : f)
+    } else {
+      const { data } = await supabase.from('cat_food_orders').insert(payload).select().single()
+      if (data) foodOrders = [data, ...foodOrders]
+    }
+    showFoodModal = false; savingFood = false
   }
 
   async function deleteRow(table: string, id: string, arr: string) {
@@ -160,8 +247,22 @@
 
 <div class="page-shell">
   <header class="page-header">
-    <h1 class="section-title">{profile?.name ?? 'Кошка'}</h1>
+    <h1 class="section-title">{isNewPet ? 'Новый питомец' : (selectedProfile?.name ?? 'Кошка')}</h1>
   </header>
+
+  <!-- Pet selector -->
+  {#if profiles.length > 0 || isNewPet}
+    <div class="pet-strip">
+      {#each profiles as p}
+        <button
+          class="pet-pill"
+          class:active={selectedProfile?.id === p.id && !isNewPet}
+          on:click={() => selectPet(p)}
+        >{p.name}</button>
+      {/each}
+      <button class="pet-pill pet-add" class:active={isNewPet} on:click={startNewPet}>+ Ещё</button>
+    </div>
+  {/if}
 
   <!-- Sub-tabs -->
   <nav class="cat-tabs">
@@ -181,7 +282,7 @@
       <div class="profile-form mt-3">
         <div class="form-field">
           <label class="label" for="p-name">Имя</label>
-          <input id="p-name" type="text" bind:value={pName} placeholder="Имя кошки" />
+          <input id="p-name" type="text" bind:value={pName} placeholder="Имя питомца" />
         </div>
         <div class="form-field">
           <label class="label" for="p-breed">Порода</label>
@@ -200,116 +301,134 @@
           <textarea id="p-notes" bind:value={pNotes} rows="3" placeholder="Особенности, диета..." />
         </div>
         <button class="btn-primary mt-2" on:click={saveProfile} disabled={savingProfile || !pName.trim()}>
-          {savingProfile ? 'Сохраняю...' : profile ? 'Обновить' : 'Создать профиль'}
+          {savingProfile ? 'Сохраняю...' : selectedProfile ? 'Обновить' : 'Создать профиль'}
         </button>
       </div>
     {/if}
 
-    <!-- VACCINES -->
-    {#if activeTab === 'vaccines'}
-      <div class="section-actions mt-3">
-        <button class="add-btn" on:click={() => showVaccModal = true}>+ Добавить</button>
-      </div>
-      {#if vaccines.length === 0}
-        <div class="empty-state mt-3">Прививок пока нет</div>
-      {:else}
-        <div class="item-list mt-3">
-          {#each vaccines as v}
-            <div class="item-card">
-              <div class="item-row">
-                <div class="item-main">
-                  <span class="item-title">{v.name}</span>
-                  <span class="item-date">{fmt(v.date)}</span>
-                  {#if v.next_due}<span class="item-next">Следующая: {fmt(v.next_due)}</span>{/if}
-                  {#if v.clinic}<span class="item-sub">{v.clinic}</span>{/if}
-                </div>
-                <button class="del-btn" on:click={() => deleteRow('cat_vaccines', v.id, 'vaccines')}>×</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    {/if}
+    {#if !selectedProfile && !isNewPet}
+      <div class="empty-state mt-3">Добавь питомца</div>
+    {:else if selectedProfile}
 
-    <!-- HEALTH -->
-    {#if activeTab === 'health'}
-      <div class="section-actions mt-3">
-        <button class="add-btn" on:click={() => showHealthModal = true}>+ Добавить</button>
-      </div>
-      {#if healthEvents.length === 0}
-        <div class="empty-state mt-3">Событий здоровья нет</div>
-      {:else}
-        <div class="item-list mt-3">
-          {#each healthEvents as e}
-            <div class="item-card">
-              <div class="item-row">
-                <div class="item-main">
-                  <span class="item-date">{fmt(e.date)}{e.vet_visit ? ' · Визит к ветеринару' : ''}</span>
-                  <span class="item-title">{e.description}</span>
-                </div>
-                <button class="del-btn" on:click={() => deleteRow('cat_health_events', e.id, 'health')}>×</button>
-              </div>
-            </div>
-          {/each}
+      <!-- VACCINES -->
+      {#if activeTab === 'vaccines'}
+        <div class="section-actions mt-3">
+          <button class="add-btn" on:click={() => openVacc()}>+ Добавить</button>
         </div>
-      {/if}
-    {/if}
-
-    <!-- GROOMING -->
-    {#if activeTab === 'grooming'}
-      <div class="section-actions mt-3">
-        <button class="add-btn" on:click={() => showGroomModal = true}>+ Добавить</button>
-      </div>
-      {#if groomings.length === 0}
-        <div class="empty-state mt-3">Визитов к грумеру нет</div>
-      {:else}
-        <div class="item-list mt-3">
-          {#each groomings as g}
-            <div class="item-card">
-              <div class="item-row">
-                <div class="item-main">
-                  <span class="item-title">{g.type}</span>
-                  <span class="item-date">{fmt(g.date)}</span>
-                  {#if g.next_due}<span class="item-next">Следующий: {fmt(g.next_due)}</span>{/if}
+        {#if vaccines.length === 0}
+          <div class="empty-state mt-3">Прививок пока нет</div>
+        {:else}
+          <div class="item-list mt-3">
+            {#each vaccines as v}
+              <div class="item-card">
+                <div class="item-row">
+                  <div class="item-main">
+                    <span class="item-title">{v.name}</span>
+                    <span class="item-date">{fmt(v.date)}</span>
+                    {#if v.next_due}<span class="item-next">Следующая: {fmt(v.next_due)}</span>{/if}
+                    {#if v.clinic}<span class="item-sub">{v.clinic}</span>{/if}
+                  </div>
+                  <div class="item-btns">
+                    <button class="edit-btn" on:click={() => openVacc(v)}>Изм.</button>
+                    <button class="del-btn" on:click={() => deleteRow('cat_vaccines', v.id, 'vaccines')}>×</button>
+                  </div>
                 </div>
-                <button class="del-btn" on:click={() => deleteRow('cat_groomings', g.id, 'groomings')}>×</button>
               </div>
-            </div>
-          {/each}
-        </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
-    {/if}
 
-    <!-- FOOD -->
-    {#if activeTab === 'food'}
-      <div class="section-actions mt-3">
-        <button class="add-btn" on:click={() => showFoodModal = true}>+ Добавить заказ</button>
-      </div>
-      {#if foodOrders.length === 0}
-        <div class="empty-state mt-3">Заказов корма нет</div>
-      {:else}
-        <div class="item-list mt-3">
-          {#each foodOrders as f}
-            <div class="item-card">
-              <div class="item-row">
-                <div class="item-main">
-                  <span class="item-title">{f.brand} — {f.product}</span>
-                  <span class="item-date">{fmt(f.date)}{f.quantity ? ' · ' + f.quantity : ''}{f.price ? ' · ' + f.price.toLocaleString('ru') + ' ₽' : ''}</span>
-                  {#if f.next_order}<span class="item-next">Следующий: {fmt(f.next_order)}</span>{/if}
+      <!-- HEALTH -->
+      {#if activeTab === 'health'}
+        <div class="section-actions mt-3">
+          <button class="add-btn" on:click={() => openHealth()}>+ Добавить</button>
+        </div>
+        {#if healthEvents.length === 0}
+          <div class="empty-state mt-3">Событий здоровья нет</div>
+        {:else}
+          <div class="item-list mt-3">
+            {#each healthEvents as e}
+              <div class="item-card">
+                <div class="item-row">
+                  <div class="item-main">
+                    <span class="item-date">{fmt(e.date)}{e.vet_visit ? ' · Визит к ветеринару' : ''}</span>
+                    <span class="item-title">{e.description}</span>
+                  </div>
+                  <div class="item-btns">
+                    <button class="edit-btn" on:click={() => openHealth(e)}>Изм.</button>
+                    <button class="del-btn" on:click={() => deleteRow('cat_health_events', e.id, 'health')}>×</button>
+                  </div>
                 </div>
-                <button class="del-btn" on:click={() => deleteRow('cat_food_orders', f.id, 'food')}>×</button>
               </div>
-            </div>
-          {/each}
-        </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
-    {/if}
 
+      <!-- GROOMING -->
+      {#if activeTab === 'grooming'}
+        <div class="section-actions mt-3">
+          <button class="add-btn" on:click={() => openGroom()}>+ Добавить</button>
+        </div>
+        {#if groomings.length === 0}
+          <div class="empty-state mt-3">Визитов к грумеру нет</div>
+        {:else}
+          <div class="item-list mt-3">
+            {#each groomings as g}
+              <div class="item-card">
+                <div class="item-row">
+                  <div class="item-main">
+                    <span class="item-title">{g.type}</span>
+                    <span class="item-date">{fmt(g.date)}</span>
+                    {#if g.next_due}<span class="item-next">Следующий: {fmt(g.next_due)}</span>{/if}
+                    {#if g.notes}<span class="item-sub">{g.notes}</span>{/if}
+                  </div>
+                  <div class="item-btns">
+                    <button class="edit-btn" on:click={() => openGroom(g)}>Изм.</button>
+                    <button class="del-btn" on:click={() => deleteRow('cat_groomings', g.id, 'groomings')}>×</button>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+
+      <!-- FOOD -->
+      {#if activeTab === 'food'}
+        <div class="section-actions mt-3">
+          <button class="add-btn" on:click={() => openFood()}>+ Добавить заказ</button>
+        </div>
+        {#if foodOrders.length === 0}
+          <div class="empty-state mt-3">Заказов корма нет</div>
+        {:else}
+          <div class="item-list mt-3">
+            {#each foodOrders as f}
+              <div class="item-card">
+                <div class="item-row">
+                  <div class="item-main">
+                    <span class="item-title">{f.brand} — {f.product}</span>
+                    <span class="item-date">{fmt(f.date)}{f.quantity ? ' · ' + f.quantity : ''}{f.price ? ' · ' + f.price.toLocaleString('ru') + ' ₽' : ''}</span>
+                    {#if f.next_order}<span class="item-next">Следующий: {fmt(f.next_order)}</span>{/if}
+                  </div>
+                  <div class="item-btns">
+                    <button class="edit-btn" on:click={() => openFood(f)}>Изм.</button>
+                    <button class="del-btn" on:click={() => deleteRow('cat_food_orders', f.id, 'food')}>×</button>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+
+    {/if}
   {/if}
 </div>
 
 <!-- Vaccine modal -->
-<Modal title="Прививка" open={showVaccModal} on:close={() => showVaccModal = false}>
+<Modal title={editingVacc ? 'Редактировать прививку' : 'Прививка'} open={showVaccModal} on:close={() => showVaccModal = false}>
   <div class="form-stack">
     <div class="form-field">
       <label class="label" for="v-name">Название</label>
@@ -327,14 +446,14 @@
       <label class="label" for="v-clinic">Клиника</label>
       <input id="v-clinic" type="text" bind:value={vClinic} placeholder="Необязательно" />
     </div>
-    <button class="btn-primary" on:click={addVaccine} disabled={savingVacc || !vName.trim() || !vDate}>
-      {savingVacc ? 'Сохраняю...' : 'Добавить'}
+    <button class="btn-primary" on:click={saveVaccine} disabled={savingVacc || !vName.trim() || !vDate}>
+      {savingVacc ? 'Сохраняю...' : editingVacc ? 'Обновить' : 'Добавить'}
     </button>
   </div>
 </Modal>
 
 <!-- Health modal -->
-<Modal title="Событие здоровья" open={showHealthModal} on:close={() => showHealthModal = false}>
+<Modal title={editingHealth ? 'Редактировать событие' : 'Событие здоровья'} open={showHealthModal} on:close={() => showHealthModal = false}>
   <div class="form-stack">
     <div class="form-field">
       <label class="label" for="h-date">Дата</label>
@@ -348,14 +467,14 @@
       <input type="checkbox" bind:checked={hVet} />
       <span>Визит к ветеринару</span>
     </label>
-    <button class="btn-primary" on:click={addHealthEvent} disabled={savingHealth || !hDesc.trim() || !hDate}>
-      {savingHealth ? 'Сохраняю...' : 'Добавить'}
+    <button class="btn-primary" on:click={saveHealthEvent} disabled={savingHealth || !hDesc.trim() || !hDate}>
+      {savingHealth ? 'Сохраняю...' : editingHealth ? 'Обновить' : 'Добавить'}
     </button>
   </div>
 </Modal>
 
 <!-- Grooming modal -->
-<Modal title="Уход" open={showGroomModal} on:close={() => showGroomModal = false}>
+<Modal title={editingGroom ? 'Редактировать уход' : 'Уход'} open={showGroomModal} on:close={() => showGroomModal = false}>
   <div class="form-stack">
     <div class="form-field">
       <label class="label">Тип</label>
@@ -379,14 +498,14 @@
       <label class="label" for="g-notes">Заметка</label>
       <input id="g-notes" type="text" bind:value={gNotes} placeholder="Необязательно" />
     </div>
-    <button class="btn-primary" on:click={addGrooming} disabled={savingGroom || !gDate}>
-      {savingGroom ? 'Сохраняю...' : 'Добавить'}
+    <button class="btn-primary" on:click={saveGrooming} disabled={savingGroom || !gDate}>
+      {savingGroom ? 'Сохраняю...' : editingGroom ? 'Обновить' : 'Добавить'}
     </button>
   </div>
 </Modal>
 
 <!-- Food modal -->
-<Modal title="Заказ корма" open={showFoodModal} on:close={() => showFoodModal = false}>
+<Modal title={editingFood ? 'Редактировать заказ' : 'Заказ корма'} open={showFoodModal} on:close={() => showFoodModal = false}>
   <div class="form-stack">
     <div class="form-field">
       <label class="label" for="f-brand">Бренд</label>
@@ -414,16 +533,33 @@
       <label class="label" for="f-next">Следующий заказ</label>
       <input id="f-next" type="date" bind:value={fNext} />
     </div>
-    <button class="btn-primary" on:click={addFoodOrder} disabled={savingFood || !fBrand.trim() || !fDate}>
-      {savingFood ? 'Сохраняю...' : 'Добавить'}
+    <button class="btn-primary" on:click={saveFoodOrder} disabled={savingFood || !fBrand.trim() || !fDate}>
+      {savingFood ? 'Сохраняю...' : editingFood ? 'Обновить' : 'Добавить'}
     </button>
   </div>
 </Modal>
 
 <style>
   .page-shell { max-width: 480px; margin: 0 auto; padding: 0 1rem 6rem; }
+  .page-header { padding: 1rem 0 0.5rem; }
 
-  .page-header { padding: 1rem 0 0.75rem; }
+  .pet-strip {
+    display: flex; gap: 0.375rem; overflow-x: auto;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.5rem;
+  }
+  .pet-strip::-webkit-scrollbar { display: none; }
+
+  .pet-pill {
+    flex: 0 0 auto; padding: 0.25rem 0.875rem;
+    border: 1px solid var(--color-border); border-radius: 2rem;
+    background: var(--color-card); font-size: 0.8125rem;
+    color: var(--color-muted); cursor: pointer; white-space: nowrap;
+    -webkit-tap-highlight-color: transparent; transition: all 0.15s;
+  }
+  .pet-pill.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  .pet-add { color: var(--color-accent); border-color: var(--color-accent); }
+  .pet-add.active { color: white; }
 
   .cat-tabs {
     display: flex; overflow-x: auto; gap: 0.375rem;
@@ -457,6 +593,9 @@
   .item-date { font-size: 0.8125rem; color: var(--color-muted); }
   .item-next { font-size: 0.8125rem; color: var(--color-accent); }
   .item-sub { font-size: 0.75rem; color: var(--color-muted); }
+
+  .item-btns { display: flex; align-items: center; gap: 0.25rem; }
+  .edit-btn { background: none; border: none; color: var(--color-accent); font-size: 0.75rem; cursor: pointer; padding: 0.125rem 0.375rem; }
   .del-btn { background: none; border: none; color: var(--color-muted); font-size: 1.25rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; }
 
   .form-stack { display: flex; flex-direction: column; gap: 1rem; }

@@ -221,6 +221,7 @@ export interface CatProfile {
 export interface CatVaccine {
   id: string
   user_id: string
+  cat_id: string | null
   name: string
   date: string
   next_due: string | null
@@ -232,6 +233,7 @@ export interface CatVaccine {
 export interface CatHealthEvent {
   id: string
   user_id: string
+  cat_id: string | null
   date: string
   description: string
   vet_visit: boolean
@@ -241,6 +243,7 @@ export interface CatHealthEvent {
 export interface CatGrooming {
   id: string
   user_id: string
+  cat_id: string | null
   date: string
   type: string
   next_due: string | null
@@ -251,6 +254,7 @@ export interface CatGrooming {
 export interface CatFoodOrder {
   id: string
   user_id: string
+  cat_id: string | null
   date: string
   brand: string
   product: string
@@ -278,6 +282,10 @@ export interface MediaItem {
   finished_at: string | null
   total_pages: number | null
   current_page: number | null
+  seasons_total: number | null
+  current_season: number | null
+  current_episode: number | null
+  is_finished: boolean
   created_at: string
 }
 
