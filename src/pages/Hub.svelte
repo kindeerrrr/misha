@@ -14,7 +14,7 @@
     { id: 'media',     title: 'Медиа',       sub: 'Книги, фильмы, сериалы',     icon: icons.book },
     { id: 'cat',       title: 'Животные',    sub: 'Питомцы, уход, здоровье',    icon: icons.paw },
     { id: 'settings',  title: 'Настройки',   sub: 'Тема и параметры',           icon: icons.settings },
-    { id: 'dashboard', title: 'Путешествия', sub: 'Поездки и маршруты',         icon: icons.map_pin, soon: true },
+    { id: 'travel',    title: 'Путешествия', sub: 'Поездки и маршруты',         icon: icons.plane },
     { id: 'dashboard', title: 'Кредиты',     sub: 'Долги и платежи',            icon: icons.credit_card, soon: true },
   ]
 </script>

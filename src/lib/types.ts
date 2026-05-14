@@ -294,6 +294,68 @@ export interface MediaItem {
   created_at: string
 }
 
+// ─── Travels ─────────────────────────────────────────────────────────────────
+
+export interface Trip {
+  id: string
+  user_id: string
+  title: string
+  city: string
+  country: string | null
+  start_date: string
+  end_date: string | null
+  notes: string | null
+  cover_emoji: string
+  created_at: string
+}
+
+export type SpotCategory = 'city' | 'place' | 'food' | 'shopping'
+
+export interface TripSpot {
+  id: string
+  user_id: string
+  trip_id: string
+  name: string
+  category: SpotCategory
+  date: string
+  start_time: string | null
+  end_time: string | null
+  address: string | null
+  notes: string | null
+  sort_order: number
+  created_at: string
+}
+
+export interface PackingBag {
+  id: string
+  user_id: string
+  trip_id: string
+  name: string
+  sort_order: number
+  created_at: string
+}
+
+export interface PackingItem {
+  id: string
+  user_id: string
+  trip_id: string
+  bag_id: string | null
+  name: string
+  packed: boolean
+  sort_order: number
+  created_at: string
+}
+
+export interface TripDocument {
+  id: string
+  user_id: string
+  trip_id: string
+  name: string
+  file_url: string
+  file_type: 'photo' | 'pdf'
+  created_at: string
+}
+
 // ─── Credits ─────────────────────────────────────────────────────────────────
 
 export interface Credit {
@@ -324,5 +386,5 @@ export interface CreditPayment {
 // ─── UI helpers ──────────────────────────────────────────────────────────────
 
 export type Theme = 'latte' | 'sage' | 'light' | 'dark'
-export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'habits' | 'cat' | 'media' | 'settings' | 'hub'
+export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'habits' | 'cat' | 'media' | 'settings' | 'hub' | 'travel'
 export type HealthTab = 'hub' | 'pills' | 'sleep' | 'measurements' | 'workouts' | 'doctors' | 'research' | 'checkups'
