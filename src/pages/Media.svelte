@@ -12,6 +12,11 @@
   let editItem: MediaItem | null = null
 
   let activeStatus: MediaStatus = 'in_progress'
+  let activeType: MediaType | null = null
+
+  // Inline page editing
+  let editingPageId: string | null = null
+  let editingPageValue = ''
 
   // Form
   let fTitle = ''
@@ -25,9 +30,12 @@
   let fSeasonsTotal = ''
   let fCurrentSeason = ''
   let fCurrentEpisode = ''
+  let fSeasonRatings: number[] = []
+  let fSeriesFinished = false
   let saving = false
 
   const typeLabel: Record<MediaType, string> = { book: 'Книга', film: 'Фильм', series: 'Сериал' }
+  const typeFilterLabel: Record<MediaType, string> = { book: 'Книги', film: 'Фильмы', series: 'Сериалы' }
   const statusLabel: Record<MediaStatus, string> = { want: 'Хочу', in_progress: 'Читаю / Смотрю', done: 'Готово' }
   const ALL_STATUSES: MediaStatus[] = ['in_progress', 'want', 'done']
   const ALL_TYPES: MediaType[] = ['book', 'film', 'series']
@@ -44,12 +52,27 @@
     return items.filter(i => i.status === status)
   }
 
+  function filteredWithType(status: MediaStatus) {
+    let base = filtered(status)
+    if (activeType) base = base.filter(i => i.type === activeType)
+    return base
+  }
+
+  // Returns true if the current status tab has items of more than one type
+  function hasMultipleTypes(status: MediaStatus): boolean {
+    const base = filtered(status)
+    const types = new Set(base.map(i => i.type))
+    return types.size > 1
+  }
+
   function openAdd(status: MediaStatus = activeStatus === 'in_progress' ? 'want' : activeStatus) {
     editItem = null
     fTitle = ''; fType = 'book'; fGenre = ''; fStatus = status
     fRating = 0; fNotes = ''
     fTotalPages = ''; fCurrentPage = ''
     fSeasonsTotal = ''; fCurrentSeason = ''; fCurrentEpisode = ''
+    fSeasonRatings = []
+    fSeriesFinished = false
     showModal = true
   }
 
@@ -62,6 +85,8 @@
     fSeasonsTotal = item.seasons_total?.toString() ?? ''
     fCurrentSeason = item.current_season?.toString() ?? ''
     fCurrentEpisode = item.current_episode?.toString() ?? ''
+    fSeasonRatings = item.season_ratings ?? []
+    fSeriesFinished = !!(item.is_finished && item.status !== 'done')
     showModal = true
   }
 
@@ -81,7 +106,8 @@
       seasons_total: fSeasonsTotal ? parseInt(fSeasonsTotal) : null,
       current_season: fCurrentSeason ? parseInt(fCurrentSeason) : null,
       current_episode: fCurrentEpisode ? parseInt(fCurrentEpisode) : null,
-      is_finished: fStatus === 'done',
+      is_finished: fStatus === 'done' || fSeriesFinished,
+      season_ratings: fSeasonRatings.length > 0 ? fSeasonRatings : null,
       started_at: fStatus !== 'want' && !editItem?.started_at ? new Date().toISOString() : editItem?.started_at ?? null,
       finished_at: fStatus === 'done' && !editItem?.finished_at ? new Date().toISOString() : editItem?.finished_at ?? null,
     }
@@ -114,6 +140,66 @@
     return Math.round((item.current_page / item.total_pages) * 100)
   }
 
+  // Inline page editing
+  function startEditPage(item: MediaItem, e: Event) {
+    e.stopPropagation()
+    editingPageId = item.id
+    editingPageValue = item.current_page?.toString() ?? ''
+  }
+
+  function commitPage(item: MediaItem) {
+    const page = parseInt(editingPageValue)
+    if (!isNaN(page) && page >= 0) {
+      updateCurrentPage(item, page)
+    }
+    editingPageId = null
+    editingPageValue = ''
+  }
+
+  async function updateCurrentPage(item: MediaItem, page: number) {
+    const updates = { current_page: page }
+    items = items.map(i => i.id === item.id ? { ...i, ...updates } : i)
+    await supabase.from('media_items').update(updates).eq('id', item.id)
+  }
+
+  // Series quick buttons
+  async function incrementEpisode(item: MediaItem, e: Event) {
+    e.stopPropagation()
+    const newEp = (item.current_episode ?? 0) + 1
+    const updates = { current_episode: newEp }
+    items = items.map(i => i.id === item.id ? { ...i, ...updates } : i)
+    await supabase.from('media_items').update(updates).eq('id', item.id)
+  }
+
+  async function incrementSeason(item: MediaItem, e: Event) {
+    e.stopPropagation()
+    const newSeason = (item.current_season ?? 0) + 1
+    const updates = { current_season: newSeason, current_episode: 1 }
+    items = items.map(i => i.id === item.id ? { ...i, ...updates } : i)
+    await supabase.from('media_items').update(updates).eq('id', item.id)
+  }
+
+  // Season ratings helpers
+  function ensureSeasonRatingLength(n: number) {
+    while (fSeasonRatings.length < n) fSeasonRatings.push(0)
+    fSeasonRatings = fSeasonRatings.slice(0, n)
+  }
+
+  $: {
+    const n = parseInt(fSeasonsTotal)
+    if (fType === 'series' && !isNaN(n) && n > 0) {
+      ensureSeasonRatingLength(n)
+    }
+  }
+
+  function setSeasonRating(idx: number, val: number) {
+    fSeasonRatings = fSeasonRatings.map((r, i) => i === idx ? val : r)
+  }
+
+  function seasonRatingStars(rating: number): string {
+    return '★'.repeat(rating) + '☆'.repeat(5 - rating)
+  }
+
   onMount(load)
 </script>
 
@@ -129,7 +215,7 @@
       <button
         class="status-tab"
         class:active={activeStatus === s}
-        on:click={() => activeStatus = s}
+        on:click={() => { activeStatus = s; activeType = null }}
       >
         {statusLabel[s]}
         {#if filtered(s).length > 0}
@@ -139,21 +225,50 @@
     {/each}
   </div>
 
+  <!-- Type filter chips (shown only when multiple types exist) -->
+  {#if !loading && hasMultipleTypes(activeStatus)}
+    <div class="type-filter-row">
+      <button
+        class="filter-chip"
+        class:active={activeType === null}
+        on:click={() => activeType = null}
+      >
+        Все
+      </button>
+      {#each ALL_TYPES as t}
+        {#if filtered(activeStatus).some(i => i.type === t)}
+          <button
+            class="filter-chip"
+            class:active={activeType === t}
+            on:click={() => activeType = t}
+          >
+            {typeFilterLabel[t]}
+          </button>
+        {/if}
+      {/each}
+    </div>
+  {/if}
+
   {#if loading}
     <div class="skeleton mt-4" style="height:10rem" />
-  {:else if filtered(activeStatus).length === 0}
+  {:else if filteredWithType(activeStatus).length === 0}
     <div class="empty-state mt-4">
       {activeStatus === 'want' ? 'Ничего не запланировано' :
        activeStatus === 'in_progress' ? 'Ничего в процессе' : 'Ещё ничего не закончено'}
     </div>
   {:else}
     <div class="item-list mt-3">
-      {#each filtered(activeStatus) as item}
+      {#each filteredWithType(activeStatus) as item}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <div class="item-card" on:click={() => openEdit(item)}>
           <div class="item-top">
             <div class="item-info">
-              <span class="item-type-badge">{typeLabel[item.type]}</span>
+              <div class="item-badges">
+                <span class="item-type-badge">{typeLabel[item.type]}</span>
+                {#if item.is_finished && item.status !== 'done'}
+                  <span class="finished-badge">завершён</span>
+                {/if}
+              </div>
               <span class="item-title">{item.title}</span>
               {#if item.genre}<span class="item-genre">{item.genre}</span>{/if}
             </div>
@@ -161,24 +276,55 @@
             <button class="del-btn" on:click|stopPropagation={() => deleteItem(item.id)}>×</button>
           </div>
 
-          <!-- Book progress -->
+          <!-- Book progress with inline page editor -->
           {#if item.type === 'book' && item.status === 'in_progress' && item.current_page}
             <div class="progress-row">
               {#if item.total_pages}
                 <div class="progress-bar">
                   <div class="progress-fill" style="width: {bookProgress(item)}%" />
                 </div>
-                <span class="progress-label">{item.current_page} / {item.total_pages} стр.</span>
-              {:else}
-                <span class="progress-label">стр. {item.current_page}</span>
               {/if}
+              <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+              <span class="progress-label">
+                {#if editingPageId === item.id}
+                  <!-- svelte-ignore a11y-autofocus -->
+                  <input
+                    class="page-inline-input"
+                    type="number"
+                    autofocus
+                    bind:value={editingPageValue}
+                    on:blur={() => commitPage(item)}
+                    on:keydown={e => { if (e.key === 'Enter') commitPage(item); if (e.key === 'Escape') { editingPageId = null } }}
+                    on:click|stopPropagation
+                  />
+                {:else}
+                  <span class="page-tappable" on:click={e => startEditPage(item, e)}>{item.current_page}</span>
+                {/if}
+                {#if item.total_pages} / {item.total_pages}{/if} стр.
+              </span>
             </div>
+          {:else if item.type === 'book' && item.status === 'in_progress'}
+            <!-- no current_page yet; no progress row -->
           {/if}
 
           <!-- Series progress -->
           {#if item.type === 'series' && item.status === 'in_progress' && (item.current_season || item.current_episode)}
             <div class="series-progress">
               {#if item.current_season}С{item.current_season}{item.seasons_total ? '/' + item.seasons_total : ''}{/if}{#if item.current_episode} · Серия {item.current_episode}{/if}
+            </div>
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <div class="series-quick-actions" on:click|stopPropagation>
+              <button class="quick-btn" on:click={e => incrementEpisode(item, e)}>+ серия</button>
+              <button class="quick-btn" on:click={e => incrementSeason(item, e)}>+ сезон</button>
+            </div>
+          {/if}
+
+          <!-- Season ratings on done cards -->
+          {#if item.type === 'series' && item.status === 'done' && item.season_ratings?.length}
+            <div class="season-ratings-row">
+              {#each item.season_ratings as sr, idx}
+                <span class="season-rating-chip">С{idx + 1} {seasonRatingStars(sr)}</span>
+              {/each}
             </div>
           {/if}
 
@@ -272,6 +418,29 @@
           </div>
         </div>
       {/if}
+
+      <!-- Series finished toggle -->
+      {#if fStatus !== 'done'}
+        <div class="form-field toggle-row">
+          <label class="toggle-label">
+            <input type="checkbox" bind:checked={fSeriesFinished} />
+            <span>Сериал вышел полностью</span>
+          </label>
+        </div>
+      {/if}
+
+      <!-- Season ratings -->
+      {#if parseInt(fSeasonsTotal) > 0}
+        <div class="form-field">
+          <label class="label">Оценки по сезонам</label>
+          {#each { length: parseInt(fSeasonsTotal) } as _, idx}
+            <div class="season-rating-row">
+              <span class="season-rating-label">Сезон {idx + 1}</span>
+              <StarRating value={fSeasonRatings[idx] ?? 0} on:change={e => setSeasonRating(idx, e.detail)} />
+            </div>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
     {#if fStatus === 'done'}
@@ -324,6 +493,28 @@
   }
   .status-tab:not(.active) .count { background: var(--color-bg); color: var(--color-accent); }
 
+  /* Type filter chips */
+  .type-filter-row {
+    display: flex; gap: 0.375rem; flex-wrap: wrap;
+    margin-top: 0.625rem;
+  }
+  .filter-chip {
+    padding: 0.25rem 0.625rem;
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    background: var(--color-card);
+    font-size: 0.75rem;
+    color: var(--color-muted);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .filter-chip.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+  }
+
   .item-list { display: flex; flex-direction: column; gap: 0.625rem; }
 
   .item-card {
@@ -335,9 +526,17 @@
 
   .item-top { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.25rem; }
   .item-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .item-badges { display: flex; align-items: center; gap: 0.375rem; }
   .item-type-badge {
     font-size: 0.6875rem; color: var(--color-accent);
     text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .finished-badge {
+    font-size: 0.6875rem;
+    color: var(--color-muted);
+    border: 1px solid var(--color-border);
+    border-radius: 0.375rem;
+    padding: 0 0.25rem;
   }
   .item-title { font-size: 0.9375rem; font-weight: 500; }
   .item-genre { font-size: 0.75rem; color: var(--color-muted); }
@@ -357,9 +556,60 @@
   }
   .progress-label { font-size: 0.75rem; color: var(--color-muted); white-space: nowrap; }
 
+  /* Tappable page number */
+  .page-tappable {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    color: var(--color-accent);
+  }
+
+  /* Inline page input */
+  .page-inline-input {
+    width: 4rem;
+    font-size: 0.75rem;
+    padding: 0.1rem 0.25rem;
+    border: 1px solid var(--color-accent);
+    border-radius: 0.25rem;
+    background: var(--color-card);
+    color: var(--color-text);
+    text-align: right;
+    -moz-appearance: textfield;
+  }
+  .page-inline-input::-webkit-outer-spin-button,
+  .page-inline-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
   .series-progress {
     font-size: 0.8125rem; color: var(--color-accent);
-    margin: 0.25rem 0;
+    margin: 0.25rem 0 0.125rem;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  /* Series quick action buttons */
+  .series-quick-actions {
+    display: flex; gap: 0.375rem; margin: 0.25rem 0;
+  }
+  .quick-btn {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    background: none;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .quick-btn:active { opacity: 0.7; }
+
+  /* Season ratings compact row on done cards */
+  .season-ratings-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.1rem 0;
+  }
+  .season-rating-chip {
+    font-size: 0.6875rem;
+    color: var(--color-muted);
     font-family: "JetBrains Mono", monospace;
   }
 
@@ -379,6 +629,23 @@
   .form-stack { display: flex; flex-direction: column; gap: 1rem; }
   .form-field { display: flex; flex-direction: column; gap: 0.375rem; flex: 1; }
   .form-row { display: flex; gap: 0.75rem; }
+
+  /* Series finished toggle */
+  .toggle-row { flex-direction: row; align-items: center; }
+  .toggle-label {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.875rem; color: var(--color-text); cursor: pointer;
+  }
+
+  /* Season rating rows in form */
+  .season-rating-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin: 0.1rem 0;
+  }
+  .season-rating-label {
+    font-size: 0.8125rem; color: var(--color-muted);
+    min-width: 5rem;
+  }
 
   .empty-state { padding: 2rem; text-align: center; color: var(--color-muted); background: var(--color-card); border-radius: 1.25rem; border: 1px dashed var(--color-border); }
 

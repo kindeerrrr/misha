@@ -290,6 +290,7 @@ export interface MediaItem {
   current_season: number | null
   current_episode: number | null
   is_finished: boolean
+  season_ratings: number[] | null
   created_at: string
 }
 
