@@ -396,6 +396,46 @@
     showToast(newRemaining <= 0 ? 'Кредит закрыт!' : 'Досрочный платёж внесён', 'success')
   }
 
+  // ── Edit scheduled payment ─────────────────────────────────────────────────
+  let showEditPaymentModal = false
+  let editingPayment: CreditPayment | null = null
+  let fEditDay = ''
+  let fEditMonth = ''
+  let fEditYear = ''
+  let fEditAmount = ''
+  let fEditAmountDisplay = ''
+  let fEditNotes = ''
+
+  $: fEditDate = (() => {
+    const d = parseInt(fEditDay), m = parseInt(fEditMonth), y = parseInt(fEditYear)
+    if (!d || !m || !y || y < 2020 || y > 2040 || m < 1 || m > 12 || d < 1 || d > 31 || fEditYear.length < 4) return ''
+    return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  })()
+
+  function openEditPayment(p: CreditPayment) {
+    editingPayment = p
+    const parts = p.date.split('-')
+    fEditDay = parts[2] ?? ''
+    fEditMonth = parts[1] ?? ''
+    fEditYear = parts[0] ?? ''
+    fEditAmount = String(p.amount)
+    fEditAmountDisplay = fmtNum(p.amount)
+    fEditNotes = p.notes ?? ''
+    showEditPaymentModal = true
+  }
+
+  async function saveEditPayment() {
+    if (!editingPayment || !fEditDate) return
+    const amount = parseNum(fEditAmountDisplay || fEditAmount)
+    if (!amount) return
+    const { data } = await supabase.from('credit_payments')
+      .update({ date: fEditDate, amount, notes: fEditNotes.trim() || null })
+      .eq('id', editingPayment.id).select().single()
+    if (data) payments = payments.map(x => x.id === data.id ? data : x)
+    showEditPaymentModal = false
+    showToast('Сохранено', 'success')
+  }
+
   // ── Payment CRUD ───────────────────────────────────────────────────────────
   function openAddPayment() {
     fPayDate = todayDate
@@ -748,6 +788,7 @@
               </span>
               {#if p.notes}<span class="payment-note">{p.notes}</span>{/if}
             </div>
+            <button class="edit-pay-btn" on:click={() => openEditPayment(p)} aria-label="Редактировать">{@html icons.edit}</button>
             <button class="pay-btn" on:click={() => markPaid(p)}>Оплатить</button>
             <button class="delete-btn-sm" on:click={() => deletePayment(p)} aria-label="Удалить">×</button>
           </div>
@@ -930,6 +971,47 @@
     <button class="btn-primary" on:click={savePayment}>
       {fPayPaid ? 'Записать' : 'Запланировать'}
     </button>
+  </div>
+</Modal>
+
+<Modal title="Редактировать платёж" open={showEditPaymentModal} on:close={() => showEditPaymentModal = false}>
+  <div class="form-row">
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Сумма *</label>
+      <input
+        class="form-input"
+        type="text"
+        inputmode="numeric"
+        bind:value={fEditAmountDisplay}
+        on:blur={() => { fEditAmount = fEditAmountDisplay.replace(/\s/g,''); fEditAmountDisplay = fEditAmount ? formatInput(fEditAmount) : '' }}
+        placeholder="6 836"
+      />
+    </div>
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Дата</label>
+      <div class="date-trio">
+        <input
+          class="date-part" type="text" inputmode="numeric" maxlength="2"
+          bind:value={fEditDay} placeholder="дд"
+          on:input={e => { if (e.currentTarget.value.length === 2) e.currentTarget.nextElementSibling?.nextElementSibling?.focus() }}
+        />
+        <span class="date-sep">.</span>
+        <input
+          class="date-part" type="text" inputmode="numeric" maxlength="2"
+          bind:value={fEditMonth} placeholder="мм"
+          on:input={e => { if (e.currentTarget.value.length === 2) e.currentTarget.nextElementSibling?.nextElementSibling?.focus() }}
+        />
+        <span class="date-sep">.</span>
+        <input class="date-part year" type="text" inputmode="numeric" maxlength="4" bind:value={fEditYear} placeholder="гггг" />
+      </div>
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Заметки</label>
+    <input class="form-input" bind:value={fEditNotes} placeholder="…" />
+  </div>
+  <div class="form-actions">
+    <button class="btn-primary" on:click={saveEditPayment} disabled={!fEditDate}>Сохранить</button>
   </div>
 </Modal>
 
@@ -1287,6 +1369,16 @@
 
   .urgent-text { color: #e65100; }
   .overdue-text { color: #e53935; }
+
+  .edit-pay-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--color-muted); padding: 0.25rem;
+    width: 1.5rem; height: 1.5rem; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .edit-pay-btn :global(svg) { width: 100%; height: 100%; }
+  .edit-pay-btn:active { opacity: 0.5; }
 
   .pay-btn {
     padding: 0.375rem 0.75rem;
