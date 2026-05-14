@@ -12,7 +12,7 @@
     { id: 'finances',  title: 'Деньги',      sub: 'Расходы и доходы',           icon: icons.wallet },
     { id: 'habits',    title: 'Привычки',    sub: 'Ежедневный трекер',          icon: icons.check_circle },
     { id: 'media',     title: 'Медиа',       sub: 'Книги, фильмы, сериалы',     icon: icons.book },
-    { id: 'cat',       title: 'Кошка',       sub: 'Здоровье, уход, корм',       icon: icons.paw },
+    { id: 'cat',       title: 'Животные',    sub: 'Питомцы, уход, здоровье',    icon: icons.paw },
     { id: 'settings',  title: 'Настройки',   sub: 'Тема и параметры',           icon: icons.settings },
     { id: 'dashboard', title: 'Путешествия', sub: 'Поездки и маршруты',         icon: icons.map_pin, soon: true },
     { id: 'dashboard', title: 'Кредиты',     sub: 'Долги и платежи',            icon: icons.credit_card, soon: true },

@@ -247,7 +247,7 @@
 
 <div class="page-shell">
   <header class="page-header">
-    <h1 class="section-title">{isNewPet ? 'Новый питомец' : (selectedProfile?.name ?? 'Кошка')}</h1>
+    <h1 class="section-title">{isNewPet ? 'Новый питомец' : (selectedProfile?.name ?? 'Животные')}</h1>
   </header>
 
   <!-- Pet selector -->
