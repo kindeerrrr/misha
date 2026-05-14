@@ -105,7 +105,7 @@
 
       <!-- Pills -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="card mb-3 tap-target" on:click={() => navigate('health')}>
+      <div class="card mb-3 tap-target" on:click={() => navigate('health', 'pills')}>
         <div class="card-header">
           <span class="card-icon">💊</span>
           <span class="card-title">Таблетки</span>
@@ -132,7 +132,7 @@
 
       <!-- Sleep -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="card mb-3 tap-target" on:click={() => navigate('health')}>
+      <div class="card mb-3 tap-target" on:click={() => navigate('health', 'sleep')}>
         <div class="card-header">
           <span class="card-icon">😴</span>
           <span class="card-title">Сон прошлой ночью</span>

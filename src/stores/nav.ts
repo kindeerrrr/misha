@@ -6,7 +6,8 @@ export const activeHealthTab = writable<HealthTab>('pills')
 
 export const navHistory = writable<NavTab[]>(['dashboard'])
 
-export function navigate(tab: NavTab) {
+export function navigate(tab: NavTab, healthTab?: HealthTab) {
   activeTab.set(tab)
+  if (healthTab) activeHealthTab.set(healthTab)
   navHistory.update(h => [...h, tab])
 }
