@@ -240,6 +240,7 @@ export interface CatHealthEvent {
   date: string
   description: string
   vet_visit: boolean
+  category: string | null
   created_at: string
 }
 
