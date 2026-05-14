@@ -73,13 +73,18 @@
     return `${RU_MONTHS_FULL[parseInt(m) - 1]} ${y}`
   }
 
+  function localDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
   function nextPaymentDate(paymentDay: number | null): string | null {
     if (!paymentDay) return null
     const now = new Date()
     const y = now.getFullYear(), m = now.getMonth(), d = now.getDate()
-    const thisMonth = new Date(y, m, Math.min(paymentDay, new Date(y, m + 1, 0).getDate()))
-    return (d <= paymentDay ? thisMonth : new Date(y, m + 1, Math.min(paymentDay, new Date(y, m + 2, 0).getDate())))
-      .toISOString().slice(0, 10)
+    const clamp = (yr: number, mo: number, day: number) =>
+      Math.min(day, new Date(yr, mo + 1, 0).getDate())
+    if (d <= paymentDay) return localDateStr(new Date(y, m, clamp(y, m, paymentDay)))
+    return localDateStr(new Date(y, m + 1, clamp(y, m + 1, paymentDay)))
   }
 
   function daysUntil(dateStr: string | null): number | null {
@@ -88,10 +93,19 @@
   }
 
   function closureForecast(c: Credit): string | null {
+    // Prefer end_date if it's set and in the future
+    if (c.end_date) {
+      const parts = c.end_date.split('-')
+      if (parts.length === 3) {
+        const endDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        if (endDate >= new Date()) return `${RU_MONTHS_SHORT[endDate.getMonth()]} ${endDate.getFullYear()}`
+      }
+    }
+    // Fallback: estimate from remaining / monthly
     if (!c.monthly_payment || c.monthly_payment <= 0 || c.remaining <= 0) return null
     const months = Math.ceil(c.remaining / c.monthly_payment)
     const d = new Date()
-    d.setMonth(d.getMonth() + months)
+    d.setMonth(d.getMonth() + months - 1) // -1: current month counts as first payment
     return `${RU_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`
   }
 
