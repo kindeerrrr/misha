@@ -216,6 +216,8 @@ export interface CatProfile {
   birth_date: string | null
   weight_kg: number | null
   notes: string | null
+  animal_type: string | null
+  photo_url: string | null
 }
 
 export interface CatVaccine {

@@ -6,22 +6,29 @@
   import type { CatProfile, CatVaccine, CatHealthEvent, CatGrooming, CatFoodOrder } from '../lib/types'
 
   type CatTab = 'profile' | 'vaccines' | 'health' | 'grooming' | 'food'
+  type View = 'list' | 'pet'
 
   const CAT_TABS: CatTab[] = ['profile', 'vaccines', 'health', 'grooming', 'food']
   const CAT_TAB_LABELS: Record<CatTab, string> = {
     profile: 'Профиль', vaccines: 'Прививки', health: 'Здоровье', grooming: 'Уход', food: 'Корм'
   }
   const GROOM_TYPES = ['Грумер', 'Стрижка когтей', 'Чистка ушей', 'Купание']
+  const ANIMAL_TYPES = [
+    { id: 'cat',     label: 'Кошка',   emoji: '🐱' },
+    { id: 'dog',     label: 'Собака',  emoji: '🐶' },
+    { id: 'hamster', label: 'Хомяк',   emoji: '🐹' },
+    { id: 'bird',    label: 'Птица',   emoji: '🐦' },
+    { id: 'other',   label: 'Другое',  emoji: '🐾' },
+  ]
 
+  let view: View = 'list'
   let activeTab: CatTab = 'profile'
   let loading = true
 
-  // Multi-pet
   let profiles: CatProfile[] = []
   let selectedProfile: CatProfile | null = null
   let isNewPet = false
 
-  // Per-pet data
   let vaccines: CatVaccine[] = []
   let healthEvents: CatHealthEvent[] = []
   let groomings: CatGrooming[] = []
@@ -29,61 +36,80 @@
 
   // Profile form
   let pName = ''; let pBreed = ''; let pBirth = ''; let pWeight = ''; let pNotes = ''
-  let savingProfile = false
+  let pAnimalType = 'cat'; let pPhotoUrl = ''
+  let savingProfile = false; let uploadingPhoto = false
 
   // Vaccine form
-  let showVaccModal = false
-  let editingVacc: CatVaccine | null = null
+  let showVaccModal = false; let editingVacc: CatVaccine | null = null
   let vName = ''; let vDate = ''; let vNextDue = ''; let vClinic = ''; let vNotes = ''
   let savingVacc = false
 
   // Health form
-  let showHealthModal = false
-  let editingHealth: CatHealthEvent | null = null
+  let showHealthModal = false; let editingHealth: CatHealthEvent | null = null
   let hDate = ''; let hDesc = ''; let hVet = false
   let savingHealth = false
 
   // Grooming form
-  let showGroomModal = false
-  let editingGroom: CatGrooming | null = null
+  let showGroomModal = false; let editingGroom: CatGrooming | null = null
   let gDate = ''; let gType = 'Грумер'; let gNextDue = ''; let gNotes = ''
   let savingGroom = false
 
   // Food form
-  let showFoodModal = false
-  let editingFood: CatFoodOrder | null = null
+  let showFoodModal = false; let editingFood: CatFoodOrder | null = null
   let fDate = ''; let fBrand = ''; let fProduct = ''; let fQty = ''; let fPrice = ''; let fNext = ''
   let savingFood = false
 
+  function petEmoji(type: string | null | undefined) {
+    return ANIMAL_TYPES.find(t => t.id === type)?.emoji ?? '🐾'
+  }
+
+  function petAge(birthDate: string | null): string | null {
+    if (!birthDate) return null
+    const birth = new Date(birthDate + 'T12:00:00')
+    const now = new Date()
+    const totalMonths = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+    if (totalMonths < 1) return 'малыш'
+    if (totalMonths < 12) return `${totalMonths} мес.`
+    const y = Math.floor(totalMonths / 12)
+    return `${y} ${y === 1 ? 'год' : y < 5 ? 'года' : 'лет'}`
+  }
+
   async function load() {
     if (!$user) return
-    const profRes = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('created_at')
-    profiles = profRes.data ?? []
-    if (profiles.length > 0) {
-      await selectPet(profiles[0])
-    }
+    const res = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('created_at')
+    profiles = res.data ?? []
     loading = false
   }
 
-  function fillProfileForm(p: CatProfile) {
-    pName = p.name; pBreed = p.breed ?? ''
-    pBirth = p.birth_date ?? ''; pWeight = p.weight_kg?.toString() ?? ''
-    pNotes = p.notes ?? ''
+  function fillForm(p: CatProfile) {
+    pName = p.name; pBreed = p.breed ?? ''; pBirth = p.birth_date ?? ''
+    pWeight = p.weight_kg?.toString() ?? ''; pNotes = p.notes ?? ''
+    pAnimalType = p.animal_type ?? 'cat'; pPhotoUrl = p.photo_url ?? ''
     isNewPet = false
   }
 
-  async function selectPet(p: CatProfile) {
+  async function openPet(p: CatProfile) {
     selectedProfile = p
-    fillProfileForm(p)
+    fillForm(p)
+    activeTab = 'profile'
     await loadPetData(p.id)
+    view = 'pet'
   }
 
   function startNewPet() {
     selectedProfile = null
     pName = ''; pBreed = ''; pBirth = ''; pWeight = ''; pNotes = ''
+    pAnimalType = 'cat'; pPhotoUrl = ''
     isNewPet = true
     vaccines = []; healthEvents = []; groomings = []; foodOrders = []
     activeTab = 'profile'
+    view = 'pet'
+  }
+
+  function goBack() {
+    view = 'list'
+    selectedProfile = null
+    isNewPet = false
   }
 
   async function loadPetData(catId: string) {
@@ -99,6 +125,26 @@
     foodOrders = foodRes.data ?? []
   }
 
+  async function handlePhotoChange(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file || !$user) return
+    uploadingPhoto = true
+    const ext = file.name.split('.').pop() ?? 'jpg'
+    const petId = selectedProfile?.id ?? `new-${Date.now()}`
+    const path = `${$user.id}/${petId}.${ext}`
+    const { error } = await supabase.storage.from('pet-photos').upload(path, file, { upsert: true })
+    if (!error) {
+      const { data } = supabase.storage.from('pet-photos').getPublicUrl(path)
+      pPhotoUrl = data.publicUrl
+      if (selectedProfile) {
+        await supabase.from('cat_profiles').update({ photo_url: pPhotoUrl }).eq('id', selectedProfile.id)
+        selectedProfile = { ...selectedProfile, photo_url: pPhotoUrl }
+        profiles = profiles.map(p => p.id === selectedProfile!.id ? selectedProfile! : p)
+      }
+    }
+    uploadingPhoto = false
+  }
+
   async function saveProfile() {
     if (!$user || !pName.trim()) return
     savingProfile = true
@@ -109,6 +155,8 @@
       birth_date: pBirth || null,
       weight_kg: pWeight ? parseFloat(pWeight) : null,
       notes: pNotes || null,
+      animal_type: pAnimalType,
+      photo_url: pPhotoUrl || null,
     }
     if (selectedProfile) {
       const { data } = await supabase.from('cat_profiles').update(payload).eq('id', selectedProfile.id).select().single()
@@ -127,6 +175,13 @@
     savingProfile = false
   }
 
+  async function deletePet() {
+    if (!selectedProfile) return
+    await supabase.from('cat_profiles').delete().eq('id', selectedProfile.id)
+    profiles = profiles.filter(p => p.id !== selectedProfile!.id)
+    goBack()
+  }
+
   // Vaccine
   function openVacc(v?: CatVaccine) {
     editingVacc = v ?? null
@@ -138,11 +193,7 @@
   async function saveVaccine() {
     if (!$user || !selectedProfile || !vName.trim() || !vDate) return
     savingVacc = true
-    const payload = {
-      user_id: $user.id, cat_id: selectedProfile.id,
-      name: vName.trim(), date: vDate,
-      next_due: vNextDue || null, clinic: vClinic || null, notes: vNotes || null,
-    }
+    const payload = { user_id: $user.id, cat_id: selectedProfile.id, name: vName.trim(), date: vDate, next_due: vNextDue || null, clinic: vClinic || null, notes: vNotes || null }
     if (editingVacc) {
       const { data } = await supabase.from('cat_vaccines').update(payload).eq('id', editingVacc.id).select().single()
       if (data) vaccines = vaccines.map(v => v.id === editingVacc!.id ? data : v)
@@ -163,10 +214,7 @@
   async function saveHealthEvent() {
     if (!$user || !selectedProfile || !hDesc.trim() || !hDate) return
     savingHealth = true
-    const payload = {
-      user_id: $user.id, cat_id: selectedProfile.id,
-      date: hDate, description: hDesc.trim(), vet_visit: hVet,
-    }
+    const payload = { user_id: $user.id, cat_id: selectedProfile.id, date: hDate, description: hDesc.trim(), vet_visit: hVet }
     if (editingHealth) {
       const { data } = await supabase.from('cat_health_events').update(payload).eq('id', editingHealth.id).select().single()
       if (data) healthEvents = healthEvents.map(e => e.id === editingHealth!.id ? data : e)
@@ -188,11 +236,7 @@
   async function saveGrooming() {
     if (!$user || !selectedProfile || !gDate) return
     savingGroom = true
-    const payload = {
-      user_id: $user.id, cat_id: selectedProfile.id,
-      date: gDate, type: gType,
-      next_due: gNextDue || null, notes: gNotes || null,
-    }
+    const payload = { user_id: $user.id, cat_id: selectedProfile.id, date: gDate, type: gType, next_due: gNextDue || null, notes: gNotes || null }
     if (editingGroom) {
       const { data } = await supabase.from('cat_groomings').update(payload).eq('id', editingGroom.id).select().single()
       if (data) groomings = groomings.map(g => g.id === editingGroom!.id ? data : g)
@@ -214,12 +258,7 @@
   async function saveFoodOrder() {
     if (!$user || !selectedProfile || !fBrand.trim() || !fDate) return
     savingFood = true
-    const payload = {
-      user_id: $user.id, cat_id: selectedProfile.id,
-      date: fDate, brand: fBrand.trim(),
-      product: fProduct || fBrand.trim(), quantity: fQty || null,
-      price: fPrice ? parseFloat(fPrice) : null, next_order: fNext || null,
-    }
+    const payload = { user_id: $user.id, cat_id: selectedProfile.id, date: fDate, brand: fBrand.trim(), product: fProduct || fBrand.trim(), quantity: fQty || null, price: fPrice ? parseFloat(fPrice) : null, next_order: fNext || null }
     if (editingFood) {
       const { data } = await supabase.from('cat_food_orders').update(payload).eq('id', editingFood.id).select().single()
       if (data) foodOrders = foodOrders.map(f => f.id === editingFood!.id ? data : f)
@@ -246,40 +285,100 @@
 </script>
 
 <div class="page-shell">
-  <header class="page-header">
-    <h1 class="section-title">{isNewPet ? 'Новый питомец' : (selectedProfile?.name ?? 'Животные')}</h1>
-  </header>
-
-  <!-- Pet selector -->
-  {#if profiles.length > 0 || isNewPet}
-    <div class="pet-strip">
-      {#each profiles as p}
-        <button
-          class="pet-pill"
-          class:active={selectedProfile?.id === p.id && !isNewPet}
-          on:click={() => selectPet(p)}
-        >{p.name}</button>
-      {/each}
-      <button class="pet-pill pet-add" class:active={isNewPet} on:click={startNewPet}>+ Ещё</button>
-    </div>
-  {/if}
-
-  <!-- Sub-tabs -->
-  <nav class="cat-tabs">
-    {#each CAT_TABS as tab}
-      <button class="cat-tab" class:active={activeTab === tab} on:click={() => activeTab = tab}>
-        {CAT_TAB_LABELS[tab]}
-      </button>
-    {/each}
-  </nav>
-
   {#if loading}
     <div class="skeleton mt-4" style="height:10rem" />
-  {:else}
 
-    <!-- PROFILE -->
+  {:else if view === 'list'}
+    <!-- LANDING -->
+    <header class="page-header">
+      <h1 class="section-title">Животные</h1>
+      <button class="add-btn" on:click={startNewPet}>+ Добавить</button>
+    </header>
+
+    {#if profiles.length === 0}
+      <div class="empty-state mt-4">
+        <div class="empty-emoji">🐾</div>
+        <p>Добавь первого питомца</p>
+        <button class="btn-primary" style="margin-top:1rem" on:click={startNewPet}>Добавить питомца</button>
+      </div>
+    {:else}
+      <div class="pet-grid">
+        {#each profiles as p}
+          <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+          <div class="pet-card" on:click={() => openPet(p)}>
+            <div class="pet-avatar">
+              {#if p.photo_url}
+                <img src={p.photo_url} alt={p.name} class="pet-img" />
+              {:else}
+                <span class="pet-emoji-big">{petEmoji(p.animal_type)}</span>
+              {/if}
+            </div>
+            <div class="pet-card-info">
+              <span class="pet-card-name">{p.name}</span>
+              {#if p.breed}<span class="pet-card-sub">{p.breed}</span>{/if}
+              {#if petAge(p.birth_date)}<span class="pet-card-age">{petAge(p.birth_date)}</span>{/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+  {:else}
+    <!-- PET PROFILE -->
+    <header class="page-header">
+      <button class="back-btn" on:click={goBack}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      </button>
+      <h1 class="section-title pet-header-name">{isNewPet ? 'Новый питомец' : (selectedProfile?.name ?? '')}</h1>
+      {#if selectedProfile}
+        <span class="pet-type-badge">{petEmoji(selectedProfile.animal_type)}</span>
+      {/if}
+    </header>
+
+    <nav class="cat-tabs">
+      {#each CAT_TABS as tab}
+        <button class="cat-tab" class:active={activeTab === tab} on:click={() => activeTab = tab}>
+          {CAT_TAB_LABELS[tab]}
+        </button>
+      {/each}
+    </nav>
+
+    <!-- PROFILE TAB -->
     {#if activeTab === 'profile'}
       <div class="profile-form mt-3">
+
+        <!-- Photo -->
+        <div class="photo-field">
+          <div class="photo-preview-wrap">
+            {#if pPhotoUrl}
+              <img src={pPhotoUrl} alt="Фото питомца" class="photo-preview" />
+            {:else}
+              <div class="photo-placeholder">{petEmoji(pAnimalType)}</div>
+            {/if}
+          </div>
+          <label class="photo-upload-btn">
+            {uploadingPhoto ? 'Загружаю...' : 'Загрузить фото'}
+            <input type="file" accept="image/*" on:change={handlePhotoChange} style="display:none" disabled={uploadingPhoto} />
+          </label>
+        </div>
+
+        <!-- Animal type -->
+        <div class="form-field">
+          <label class="label">Тип животного</label>
+          <div class="animal-type-row">
+            {#each ANIMAL_TYPES as t}
+              <button
+                class="animal-type-btn"
+                class:selected={pAnimalType === t.id}
+                on:click={() => pAnimalType = t.id}
+              >
+                <span class="animal-emoji">{t.emoji}</span>
+                <span class="animal-label">{t.label}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+
         <div class="form-field">
           <label class="label" for="p-name">Имя</label>
           <input id="p-name" type="text" bind:value={pName} placeholder="Имя питомца" />
@@ -303,13 +402,15 @@
         <button class="btn-primary mt-2" on:click={saveProfile} disabled={savingProfile || !pName.trim()}>
           {savingProfile ? 'Сохраняю...' : selectedProfile ? 'Обновить' : 'Создать профиль'}
         </button>
+        {#if selectedProfile}
+          <button class="btn-ghost" style="margin-top:-0.5rem;color:var(--color-danger,#ef4444)" on:click={deletePet}>
+            Удалить питомца
+          </button>
+        {/if}
       </div>
     {/if}
 
-    {#if !selectedProfile && !isNewPet}
-      <div class="empty-state mt-3">Добавь питомца</div>
-    {:else if selectedProfile}
-
+    {#if selectedProfile}
       <!-- VACCINES -->
       {#if activeTab === 'vaccines'}
         <div class="section-actions mt-3">
@@ -422,7 +523,6 @@
           </div>
         {/if}
       {/if}
-
     {/if}
   {/if}
 </div>
@@ -540,31 +640,79 @@
 </Modal>
 
 <style>
-  .page-shell { max-width: 480px; margin: 0 auto; padding: 0 1.375rem 6rem; }
-  .page-header { padding: 1rem 0 0.5rem; }
-
-  .pet-strip {
-    display: flex; gap: 0.375rem; overflow-x: auto;
-    scrollbar-width: none; -webkit-overflow-scrolling: touch;
-    padding-bottom: 0.5rem;
+  .page-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 1rem 0 0.75rem;
   }
-  .pet-strip::-webkit-scrollbar { display: none; }
+  .section-title { flex: 1; }
 
-  .pet-pill {
-    flex: 0 0 auto; padding: 0.25rem 0.875rem;
-    border: 1px solid var(--color-border); border-radius: 2rem;
-    background: var(--color-card); font-size: 0.8125rem;
-    color: var(--color-muted); cursor: pointer; white-space: nowrap;
-    -webkit-tap-highlight-color: transparent; transition: all 0.15s;
+  .add-btn {
+    background: var(--color-accent); color: white; border: none;
+    border-radius: 0.875rem; padding: 0.5rem 1rem; font-size: 0.875rem;
+    cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent;
   }
-  .pet-pill.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
-  .pet-add { color: var(--color-accent); border-color: var(--color-accent); }
-  .pet-add.active { color: white; }
 
+  .back-btn {
+    background: none; border: none; color: var(--color-text);
+    cursor: pointer; padding: 0.25rem; display: flex; align-items: center;
+    flex-shrink: 0; -webkit-tap-highlight-color: transparent;
+  }
+
+  .pet-type-badge { font-size: 1.5rem; flex-shrink: 0; }
+  .pet-header-name { font-size: 1.25rem; }
+
+  /* Landing grid */
+  .pet-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+
+  .pet-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 1.25rem;
+    padding: 1.25rem 1rem 1rem;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+  }
+  .pet-card:active { opacity: 0.75; }
+
+  .pet-avatar {
+    width: 5rem; height: 5rem;
+    border-radius: 50%;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .pet-img { width: 100%; height: 100%; object-fit: cover; }
+  .pet-emoji-big { font-size: 2.5rem; line-height: 1; }
+
+  .pet-card-info {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; text-align: center;
+  }
+  .pet-card-name { font-size: 1rem; font-weight: 500; color: var(--color-text); }
+  .pet-card-sub { font-size: 0.75rem; color: var(--color-muted); }
+  .pet-card-age {
+    font-size: 0.75rem; color: var(--color-accent);
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  /* Sub-tabs */
   .cat-tabs {
     display: flex; overflow-x: auto; gap: 0.375rem;
     scrollbar-width: none; -webkit-overflow-scrolling: touch;
-    padding-bottom: 0.25rem;
+    padding-bottom: 0.25rem; margin-bottom: 0.25rem;
   }
   .cat-tabs::-webkit-scrollbar { display: none; }
 
@@ -577,14 +725,56 @@
   }
   .cat-tab.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
 
-  .section-actions { display: flex; justify-content: flex-end; }
-  .add-btn {
-    background: var(--color-accent); color: white; border: none;
-    border-radius: 0.875rem; padding: 0.5rem 1rem; font-size: 0.875rem; cursor: pointer;
+  /* Photo field */
+  .photo-field {
+    display: flex; align-items: center; gap: 1rem;
+    padding: 0.75rem; background: var(--color-bg);
+    border: 1px solid var(--color-border); border-radius: 1rem;
   }
 
+  .photo-preview-wrap {
+    width: 4rem; height: 4rem; border-radius: 50%;
+    background: var(--color-card); border: 1px solid var(--color-border);
+    overflow: hidden; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .photo-preview { width: 100%; height: 100%; object-fit: cover; }
+  .photo-placeholder { font-size: 1.75rem; line-height: 1; }
+
+  .photo-upload-btn {
+    flex: 1; padding: 0.5rem 0.875rem;
+    border: 1px dashed var(--color-border); border-radius: 0.75rem;
+    font-size: 0.875rem; color: var(--color-accent);
+    cursor: pointer; text-align: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Animal type selector */
+  .animal-type-row {
+    display: flex; gap: 0.375rem; flex-wrap: wrap;
+  }
+
+  .animal-type-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--color-border); border-radius: 0.875rem;
+    background: var(--color-card); cursor: pointer;
+    -webkit-tap-highlight-color: transparent; transition: all 0.15s;
+  }
+  .animal-type-btn.selected {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: white;
+  }
+  .animal-emoji { font-size: 1.25rem; line-height: 1; }
+  .animal-label { font-size: 0.6875rem; color: var(--color-muted); white-space: nowrap; }
+  .animal-type-btn.selected .animal-label { color: rgba(255,255,255,0.85); }
+
+  /* Profile form */
   .profile-form { display: flex; flex-direction: column; gap: 1rem; }
 
+  /* Record lists */
+  .section-actions { display: flex; justify-content: flex-end; }
   .item-list { display: flex; flex-direction: column; gap: 0.5rem; }
   .item-card { background: var(--color-card); border: 1px solid var(--color-border); border-radius: 1rem; padding: 0.875rem 1rem; }
   .item-row { display: flex; align-items: flex-start; gap: 0.5rem; }
@@ -598,6 +788,7 @@
   .edit-btn { background: none; border: none; color: var(--color-accent); font-size: 0.75rem; cursor: pointer; padding: 0.125rem 0.375rem; }
   .del-btn { background: none; border: none; color: var(--color-muted); font-size: 1.25rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; }
 
+  /* Modals */
   .form-stack { display: flex; flex-direction: column; gap: 1rem; }
   .form-field { display: flex; flex-direction: column; gap: 0.375rem; flex: 1; }
   .form-row { display: flex; gap: 0.75rem; }
@@ -610,7 +801,13 @@
   .checkbox-row { display: flex; align-items: center; gap: 0.625rem; font-size: 0.9375rem; cursor: pointer; }
   .checkbox-row input { width: 1.125rem; height: 1.125rem; accent-color: var(--color-accent); }
 
-  .empty-state { padding: 2rem; text-align: center; color: var(--color-muted); background: var(--color-card); border-radius: 1.25rem; border: 1px dashed var(--color-border); }
+  .empty-state {
+    padding: 2.5rem 2rem; text-align: center; color: var(--color-muted);
+    background: var(--color-card); border-radius: 1.25rem;
+    border: 1px dashed var(--color-border);
+    display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+  }
+  .empty-emoji { font-size: 2.5rem; }
 
   .skeleton { border-radius: 1.25rem; background: linear-gradient(90deg, var(--color-card) 25%, var(--color-card-hover) 50%, var(--color-card) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
