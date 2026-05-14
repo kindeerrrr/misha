@@ -109,10 +109,31 @@
   $: sortedFood      = sortNearest(filteredFood,       'next_order')
   $: sortedHealth    = sortNearest(filteredHealth)
 
-  // Upcoming
+  // Archive helpers
+  let showArchived = false
+  function daysAgo(d: string | null | undefined): number {
+    if (!d) return -9999
+    return Math.round((new Date(todayDate + 'T12:00:00').getTime() - new Date(d + 'T12:00:00').getTime()) / 86400000)
+  }
+  function recState(record: any, nextKey?: string): 'future' | 'recent' | 'past' {
+    const trigger: string | null = (nextKey && record[nextKey]) ? record[nextKey] : record.date
+    const age = daysAgo(trigger)
+    if (age < 0) return 'future'
+    if (age <= 7) return 'recent'
+    return 'past'
+  }
+
+  // Upcoming (sorted by nearest date)
   $: nextVaccine = vaccines.filter(v => v.next_due && v.next_due > todayDate).sort((a,b) => a.next_due!.localeCompare(b.next_due!))[0] ?? null
   $: nextGroom = groomings.filter(g => g.next_due && g.next_due > todayDate).sort((a,b) => a.next_due!.localeCompare(b.next_due!))[0] ?? null
   $: nextFood = foodOrders.filter(f => f.next_order && f.next_order > todayDate).sort((a,b) => a.next_order!.localeCompare(b.next_order!))[0] ?? null
+  $: upcomingItems = ([
+    nextVaccine ? { label: 'Прививки', name: nextVaccine.name,  date: nextVaccine.next_due ?? '',  icon: icons.pill     } : null,
+    nextGroom   ? { label: 'Уход',     name: nextGroom.type,    date: nextGroom.next_due ?? '',    icon: icons.scissors } : null,
+    nextFood    ? { label: 'Корм',     name: nextFood.brand,    date: nextFood.next_order ?? '',   icon: icons.bowl     } : null,
+  ] as ({ label: string; name: string; date: string; icon: string } | null)[])
+    .filter((x): x is { label: string; name: string; date: string; icon: string } => x !== null)
+    .sort((a, b) => a.date.localeCompare(b.date))
 
   // Profile form
   let pName = ''; let pBreed = ''; let pBirth = ''; let pWeight = ''; let pNotes = ''
@@ -407,24 +428,24 @@
 
       <!-- Section grid -->
       <div class="sections-grid">
-        <button class="section-card" on:click={() => catSection = 'vaccines'}>
+        <button class="section-card" on:click={() => { catSection = 'vaccines'; showArchived = false }}>
           <div class="section-card-icon">{@html icons.pill}</div>
           <span class="section-card-label">Прививки</span>
           <span class="section-card-count">{vaccines.length}</span>
           {#if nextVaccine}<span class="section-card-hint">след. {fmt(nextVaccine.next_due)}</span>{/if}
         </button>
-        <button class="section-card" on:click={() => catSection = 'grooming'}>
+        <button class="section-card" on:click={() => { catSection = 'grooming'; showArchived = false }}>
           <div class="section-card-icon">{@html icons.scissors}</div>
           <span class="section-card-label">Уход</span>
           <span class="section-card-count">{groomings.length}</span>
           {#if nextGroom}<span class="section-card-hint">след. {fmt(nextGroom.next_due)}</span>{/if}
         </button>
-        <button class="section-card" on:click={() => catSection = 'health'}>
+        <button class="section-card" on:click={() => { catSection = 'health'; showArchived = false }}>
           <div class="section-card-icon">{@html icons.stethoscope}</div>
           <span class="section-card-label">Здоровье</span>
           <span class="section-card-count">{healthEvents.length}</span>
         </button>
-        <button class="section-card" on:click={() => catSection = 'food'}>
+        <button class="section-card" on:click={() => { catSection = 'food'; showArchived = false }}>
           <div class="section-card-icon">{@html icons.bowl}</div>
           <span class="section-card-label">Корм</span>
           <span class="section-card-count">{foodOrders.length}</span>
@@ -432,41 +453,21 @@
         </button>
       </div>
 
-      <!-- Upcoming -->
-      {#if nextVaccine || nextGroom || nextFood}
+      <!-- Upcoming (sorted by nearest date) -->
+      {#if upcomingItems.length > 0}
         <section class="upcoming-section">
           <p class="label mb-2">Ближайшее</p>
           <div class="upcoming-list">
-            {#if nextVaccine}
+            {#each upcomingItems as item}
               <div class="upcoming-item">
-                <div class="upcoming-icon">{@html icons.pill}</div>
+                <div class="upcoming-icon">{@html item.icon}</div>
                 <div class="upcoming-info">
-                  <span class="upcoming-type">Прививки</span>
-                  <span class="upcoming-name">{nextVaccine.name}</span>
+                  <span class="upcoming-type">{item.label}</span>
+                  <span class="upcoming-name">{item.name}</span>
                 </div>
-                <span class="upcoming-date">{fmt(nextVaccine.next_due)}</span>
+                <span class="upcoming-date">{fmt(item.date)}</span>
               </div>
-            {/if}
-            {#if nextGroom}
-              <div class="upcoming-item">
-                <div class="upcoming-icon">{@html icons.scissors}</div>
-                <div class="upcoming-info">
-                  <span class="upcoming-type">Уход</span>
-                  <span class="upcoming-name">{nextGroom.type}</span>
-                </div>
-                <span class="upcoming-date">{fmt(nextGroom.next_due)}</span>
-              </div>
-            {/if}
-            {#if nextFood}
-              <div class="upcoming-item">
-                <div class="upcoming-icon">{@html icons.bowl}</div>
-                <div class="upcoming-info">
-                  <span class="upcoming-type">Корм</span>
-                  <span class="upcoming-name">{nextFood.brand}</span>
-                </div>
-                <span class="upcoming-date">{fmt(nextFood.next_order)}</span>
-              </div>
-            {/if}
+            {/each}
           </div>
         </section>
       {/if}
@@ -493,24 +494,33 @@
         {#if vaccines.length === 0}
           <div class="empty-state mt-3">Прививок пока нет</div>
         {:else}
+          {@const archivedCount = sortedVaccines.filter(v => recState(v, 'next_due') === 'past').length}
           <div class="item-list mt-3">
             {#each sortedVaccines as v}
-              <div class="item-card">
-                <div class="item-row">
-                  <div class="item-main">
-                    <span class="item-title">{v.name}</span>
-                    <span class="item-date">{fmtFull(v.date)}</span>
-                    {#if v.next_due}<span class="item-next">Следующая: {fmtFull(v.next_due)}</span>{/if}
-                    {#if v.clinic}<span class="item-sub">{v.clinic}</span>{/if}
-                  </div>
-                  <div class="item-btns">
-                    <button class="edit-btn" on:click={() => openVacc(v)}>Изм.</button>
-                    <button class="del-btn" on:click={() => deleteRow('cat_vaccines', v.id, 'vaccines')}>×</button>
+              {@const st = recState(v, 'next_due')}
+              {#if st !== 'past' || showArchived}
+                <div class="item-card" class:item-dim={st === 'recent'}>
+                  <div class="item-row">
+                    <div class="item-main">
+                      <span class="item-title" class:item-strike={st === 'recent'}>{v.name}</span>
+                      <span class="item-date">{fmtFull(v.date)}</span>
+                      {#if v.next_due}<span class="item-next">{st === 'recent' ? 'Была: ' : 'Следующая: '}{fmtFull(v.next_due)}</span>{/if}
+                      {#if v.clinic}<span class="item-sub">{v.clinic}</span>{/if}
+                    </div>
+                    <div class="item-btns">
+                      <button class="edit-btn" on:click={() => openVacc(v)}>Изм.</button>
+                      <button class="del-btn" on:click={() => deleteRow('cat_vaccines', v.id, 'vaccines')}>×</button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              {/if}
             {/each}
           </div>
+          {#if archivedCount > 0}
+            <button class="archive-toggle mt-3" on:click={() => showArchived = !showArchived}>
+              {showArchived ? 'Скрыть архив' : `Архив (${archivedCount})`}
+            </button>
+          {/if}
         {/if}
       {/if}
 
@@ -527,28 +537,37 @@
         {#if filteredHealth.length === 0}
           <div class="empty-state mt-3">Записей нет</div>
         {:else}
+          {@const archivedCount = sortedHealth.filter(e => recState(e) === 'past').length}
           <div class="item-list mt-3">
             {#each sortedHealth as e}
-              <div class="item-card">
-                <div class="item-row">
-                  <div class="item-category-badge cat-{e.category}">
-                    <span class="cat-badge-icon">{@html categoryFor(e.category).icon}</span>
-                  </div>
-                  <div class="item-main">
-                    <div class="item-title-row">
-                      <span class="item-title">{e.description}</span>
-                      <span class="item-category-label">{categoryFor(e.category).label}</span>
+              {@const st = recState(e)}
+              {#if st !== 'past' || showArchived}
+                <div class="item-card" class:item-dim={st === 'recent'}>
+                  <div class="item-row">
+                    <div class="item-category-badge cat-{e.category}">
+                      <span class="cat-badge-icon">{@html categoryFor(e.category).icon}</span>
                     </div>
-                    <span class="item-date">{fmtFull(e.date)}</span>
-                  </div>
-                  <div class="item-btns">
-                    <button class="edit-btn" on:click={() => openHealth(e)}>Изм.</button>
-                    <button class="del-btn" on:click={() => deleteRow('cat_health_events', e.id, 'health')}>×</button>
+                    <div class="item-main">
+                      <div class="item-title-row">
+                        <span class="item-title" class:item-strike={st === 'recent'}>{e.description}</span>
+                        <span class="item-category-label">{categoryFor(e.category).label}</span>
+                      </div>
+                      <span class="item-date">{fmtFull(e.date)}</span>
+                    </div>
+                    <div class="item-btns">
+                      <button class="edit-btn" on:click={() => openHealth(e)}>Изм.</button>
+                      <button class="del-btn" on:click={() => deleteRow('cat_health_events', e.id, 'health')}>×</button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              {/if}
             {/each}
           </div>
+          {#if archivedCount > 0}
+            <button class="archive-toggle mt-3" on:click={() => showArchived = !showArchived}>
+              {showArchived ? 'Скрыть архив' : `Архив (${archivedCount})`}
+            </button>
+          {/if}
         {/if}
       {/if}
 
@@ -567,24 +586,33 @@
         {#if filteredGroomings.length === 0}
           <div class="empty-state mt-3">Визитов пока нет</div>
         {:else}
+          {@const archivedCount = sortedGroomings.filter(g => recState(g, 'next_due') === 'past').length}
           <div class="item-list mt-3">
             {#each sortedGroomings as g}
-              <div class="item-card">
-                <div class="item-row">
-                  <div class="item-main">
-                    <span class="item-title">{g.type}</span>
-                    <span class="item-date">{fmtFull(g.date)}</span>
-                    {#if g.next_due}<span class="item-next">Следующий: {fmtFull(g.next_due)}</span>{/if}
-                    {#if g.notes}<span class="item-sub">{g.notes}</span>{/if}
-                  </div>
-                  <div class="item-btns">
-                    <button class="edit-btn" on:click={() => openGroom(g)}>Изм.</button>
-                    <button class="del-btn" on:click={() => deleteRow('cat_groomings', g.id, 'groomings')}>×</button>
+              {@const st = recState(g, 'next_due')}
+              {#if st !== 'past' || showArchived}
+                <div class="item-card" class:item-dim={st === 'recent'}>
+                  <div class="item-row">
+                    <div class="item-main">
+                      <span class="item-title" class:item-strike={st === 'recent'}>{g.type}</span>
+                      <span class="item-date">{fmtFull(g.date)}</span>
+                      {#if g.next_due}<span class="item-next">{st === 'recent' ? 'Был: ' : 'Следующий: '}{fmtFull(g.next_due)}</span>{/if}
+                      {#if g.notes}<span class="item-sub">{g.notes}</span>{/if}
+                    </div>
+                    <div class="item-btns">
+                      <button class="edit-btn" on:click={() => openGroom(g)}>Изм.</button>
+                      <button class="del-btn" on:click={() => deleteRow('cat_groomings', g.id, 'groomings')}>×</button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              {/if}
             {/each}
           </div>
+          {#if archivedCount > 0}
+            <button class="archive-toggle mt-3" on:click={() => showArchived = !showArchived}>
+              {showArchived ? 'Скрыть архив' : `Архив (${archivedCount})`}
+            </button>
+          {/if}
         {/if}
       {/if}
 
@@ -601,23 +629,32 @@
         {#if filteredFood.length === 0}
           <div class="empty-state mt-3">Заказов пока нет</div>
         {:else}
+          {@const archivedCount = sortedFood.filter(f => recState(f, 'next_order') === 'past').length}
           <div class="item-list mt-3">
             {#each sortedFood as f}
-              <div class="item-card">
-                <div class="item-row">
-                  <div class="item-main">
-                    <span class="item-title">{f.brand} — {f.product}</span>
-                    <span class="item-date">{fmtFull(f.date)}{f.quantity ? ' · ' + f.quantity : ''}{f.price ? ' · ' + f.price.toLocaleString('ru') + ' ₽' : ''}</span>
-                    {#if f.next_order}<span class="item-next">Следующий: {fmtFull(f.next_order)}</span>{/if}
-                  </div>
-                  <div class="item-btns">
-                    <button class="edit-btn" on:click={() => openFood(f)}>Изм.</button>
-                    <button class="del-btn" on:click={() => deleteRow('cat_food_orders', f.id, 'food')}>×</button>
+              {@const st = recState(f, 'next_order')}
+              {#if st !== 'past' || showArchived}
+                <div class="item-card" class:item-dim={st === 'recent'}>
+                  <div class="item-row">
+                    <div class="item-main">
+                      <span class="item-title" class:item-strike={st === 'recent'}>{f.brand} — {f.product}</span>
+                      <span class="item-date">{fmtFull(f.date)}{f.quantity ? ' · ' + f.quantity : ''}{f.price ? ' · ' + f.price.toLocaleString('ru') + ' ₽' : ''}</span>
+                      {#if f.next_order}<span class="item-next">{st === 'recent' ? 'Был: ' : 'Следующий: '}{fmtFull(f.next_order)}</span>{/if}
+                    </div>
+                    <div class="item-btns">
+                      <button class="edit-btn" on:click={() => openFood(f)}>Изм.</button>
+                      <button class="del-btn" on:click={() => deleteRow('cat_food_orders', f.id, 'food')}>×</button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              {/if}
             {/each}
           </div>
+          {#if archivedCount > 0}
+            <button class="archive-toggle mt-3" on:click={() => showArchived = !showArchived}>
+              {showArchived ? 'Скрыть архив' : `Архив (${archivedCount})`}
+            </button>
+          {/if}
         {/if}
       {/if}
     {/if}
@@ -869,6 +906,9 @@
   /* Records */
   .item-list { display: flex; flex-direction: column; gap: 0.5rem; }
   .item-card { background: var(--color-card); border: 1px solid var(--color-border); border-radius: 1rem; padding: 0.875rem 1rem; }
+  .item-dim { opacity: 0.45; }
+  .item-strike { text-decoration: line-through; }
+  .archive-toggle { background: none; border: none; color: var(--color-muted); font-size: 0.8125rem; cursor: pointer; width: 100%; text-align: center; padding: 0.5rem; -webkit-tap-highlight-color: transparent; }
   .item-row { display: flex; align-items: flex-start; gap: 0.625rem; }
   .item-main { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .item-title { font-size: 0.9375rem; }
