@@ -1,0 +1,336 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { supabase, today } from '../lib/supabase'
+  import { user } from '../stores/user'
+  import Modal from '../components/ui/Modal.svelte'
+  import type { Expense, ExpenseCategory } from '../lib/types'
+
+  let categories: ExpenseCategory[] = []
+  let expenses: Expense[] = []
+  let loading = true
+  let showModal = false
+
+  const todayDate = today()
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  // Quick expense form
+  let amount = ''
+  let selCatId = ''
+  let note = ''
+  let expDate = todayDate
+  let saving = false
+
+  async function load() {
+    if (!$user) return
+    const uid = $user.id
+    const [catRes, expRes] = await Promise.all([
+      supabase.from('expense_categories').select('*').eq('user_id', uid).order('sort_order'),
+      supabase.from('expenses').select('*, expense_categories(name, emoji, group_name)').eq('user_id', uid).gte('date', weekAgo).order('date', { ascending: false }).order('created_at', { ascending: false }),
+    ])
+    categories = catRes.data ?? []
+    expenses = (expRes.data ?? []).map((e: Expense & { expense_categories?: ExpenseCategory }) => ({
+      ...e, category: e.expense_categories
+    }))
+    loading = false
+  }
+
+  async function saveExpense() {
+    if (!$user || !amount || !selCatId) return
+    saving = true
+    const { data } = await supabase.from('expenses').insert({
+      user_id: $user.id,
+      date: expDate,
+      amount: parseFloat(amount),
+      category_id: selCatId,
+      note: note || null,
+    }).select('*, expense_categories(name, emoji, group_name)').single()
+    if (data) {
+      const exp: Expense = { ...data, category: data.expense_categories }
+      expenses = [exp, ...expenses]
+    }
+    showModal = false
+    amount = ''; selCatId = ''; note = ''; expDate = todayDate
+    saving = false
+  }
+
+  async function deleteExpense(id: string) {
+    if (!$user) return
+    await supabase.from('expenses').delete().eq('id', id)
+    expenses = expenses.filter(e => e.id !== id)
+  }
+
+  function quickCategories(): ExpenseCategory[] {
+    return categories.filter(c => c.is_quick).slice(0, 8)
+  }
+
+  function weekTotal(): number {
+    return expenses.reduce((s, e) => s + e.amount, 0)
+  }
+
+  function todayTotal(): number {
+    return expenses.filter(e => e.date === todayDate).reduce((s, e) => s + e.amount, 0)
+  }
+
+  function groupByDate() {
+    const groups: Record<string, Expense[]> = {}
+    for (const e of expenses) {
+      if (!groups[e.date]) groups[e.date] = []
+      groups[e.date].push(e)
+    }
+    return Object.entries(groups)
+  }
+
+  function dateLabel(d: string): string {
+    if (d === todayDate) return 'Сегодня'
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
+    if (d === yesterday.toISOString().slice(0, 10)) return 'Вчера'
+    return new Date(d).toLocaleDateString('ru', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+
+  function dayTotal(dayExpenses: Expense[]): number {
+    return dayExpenses.reduce((s, e) => s + e.amount, 0)
+  }
+
+  onMount(load)
+</script>
+
+<div class="page-shell">
+  <header class="page-header">
+    <h1 class="section-title">Финансы</h1>
+    <button class="add-btn" on:click={() => showModal = true}>+ Трата</button>
+  </header>
+
+  <!-- Summary -->
+  <div class="summary-row">
+    <div class="summary-card">
+      <span class="label">Сегодня</span>
+      <span class="summary-amount number-display">{todayTotal().toLocaleString('ru')} ₽</span>
+    </div>
+    <div class="summary-card">
+      <span class="label">Неделя</span>
+      <span class="summary-amount number-display">{weekTotal().toLocaleString('ru')} ₽</span>
+    </div>
+  </div>
+
+  <!-- Quick categories -->
+  {#if !loading && quickCategories().length > 0}
+    <div class="quick-section mt-3">
+      <p class="label mb-2">Быстрый ввод</p>
+      <div class="quick-grid">
+        {#each quickCategories() as cat}
+          <button
+            class="quick-btn"
+            class:selected={selCatId === cat.id}
+            on:click={() => { selCatId = cat.id; showModal = true }}
+          >
+            <span class="quick-emoji">{cat.emoji}</span>
+            <span class="quick-name">{cat.name}</span>
+          </button>
+        {/each}
+        <button class="quick-btn other-btn" on:click={() => showModal = true}>
+          <span class="quick-emoji">⋯</span>
+          <span class="quick-name">Другая</span>
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Expense list -->
+  {#if loading}
+    <div class="skeleton mt-4" style="height:8rem" />
+  {:else if expenses.length === 0}
+    <div class="empty-state mt-4">Запиши первую трату →</div>
+  {:else}
+    <div class="expense-groups mt-4">
+      {#each groupByDate() as [date, dayExpenses]}
+        <div class="day-group">
+          <div class="day-header">
+            <span class="day-label label">{dateLabel(date)}</span>
+            <span class="day-total number-display">{dayTotal(dayExpenses).toLocaleString('ru')} ₽</span>
+          </div>
+          {#each dayExpenses as exp}
+            <div class="expense-row">
+              <span class="exp-emoji">{exp.category?.emoji ?? '◎'}</span>
+              <div class="exp-info">
+                <span class="exp-cat">{exp.category?.name ?? '—'}</span>
+                {#if exp.note}<span class="exp-note">{exp.note}</span>{/if}
+              </div>
+              <span class="exp-amount number-display">{exp.amount.toLocaleString('ru')} ₽</span>
+              <button class="del-btn" on:click={() => deleteExpense(exp.id)}>×</button>
+            </div>
+          {/each}
+        </div>
+      {/each}
+    </div>
+  {/if}
+</div>
+
+<!-- Add expense modal -->
+<Modal title="Новая трата" open={showModal} on:close={() => { showModal = false; selCatId = '' }}>
+  <div class="form-stack">
+    <!-- Amount -->
+    <div class="form-field">
+      <label class="label" for="exp-amount">Сумма ₽</label>
+      <input
+        id="exp-amount"
+        type="number"
+        bind:value={amount}
+        placeholder="0"
+        inputmode="decimal"
+        step="0.01"
+        class="amount-input"
+        autofocus
+      />
+    </div>
+
+    <!-- Category -->
+    <div class="form-field">
+      <label class="label">Категория</label>
+      <div class="cat-grid">
+        {#each categories as cat}
+          <button
+            class="cat-btn"
+            class:selected={selCatId === cat.id}
+            on:click={() => selCatId = cat.id}
+          >
+            <span>{cat.emoji}</span>
+            <span class="cat-name">{cat.name}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <!-- Note -->
+    <div class="form-field">
+      <label class="label" for="exp-note">Заметка</label>
+      <input id="exp-note" type="text" bind:value={note} placeholder="Необязательно" />
+    </div>
+
+    <!-- Date -->
+    <div class="form-field">
+      <label class="label" for="exp-date">Дата</label>
+      <input id="exp-date" type="date" bind:value={expDate} />
+    </div>
+
+    <button class="btn-primary" on:click={saveExpense} disabled={saving || !amount || !selCatId}>
+      {saving ? 'Сохраняю...' : 'Добавить'}
+    </button>
+  </div>
+</Modal>
+
+<style>
+  .page-shell { max-width: 480px; margin: 0 auto; padding: 0 1rem 6rem; }
+
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 0 0.75rem;
+  }
+
+  .add-btn {
+    background: var(--color-accent);
+    color: white;
+    border: none;
+    border-radius: 0.875rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.9375rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+  }
+
+  .add-btn:active { opacity: 0.8; }
+
+  .summary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; }
+
+  .summary-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 1.125rem;
+    padding: 0.875rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .summary-amount { font-size: 1.375rem; color: var(--color-text); }
+
+  .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.375rem; }
+
+  .quick-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 0.625rem 0.25rem;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 0.875rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+
+  .quick-btn.selected { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  .quick-btn:active:not(.selected) { background: var(--color-card-hover); transform: scale(0.96); }
+  .other-btn { color: var(--color-muted); }
+
+  .quick-emoji { font-size: 1.125rem; line-height: 1; }
+  .quick-name { font-size: 0.625rem; text-align: center; line-height: 1.2; }
+
+  .expense-groups { display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .day-group { display: flex; flex-direction: column; gap: 0.375rem; }
+
+  .day-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+  }
+
+  .day-total { font-size: 0.9375rem; color: var(--color-text); }
+
+  .expense-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.875rem;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 0.875rem;
+  }
+
+  .exp-emoji { font-size: 1rem; }
+  .exp-info { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .exp-cat { font-size: 0.9375rem; }
+  .exp-note { font-size: 0.75rem; color: var(--color-muted); }
+  .exp-amount { font-size: 0.9375rem; white-space: nowrap; }
+  .del-btn { background: none; border: none; color: var(--color-muted); font-size: 1.25rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; }
+
+  .empty-state { padding: 2rem; text-align: center; color: var(--color-muted); background: var(--color-card); border-radius: 1.25rem; border: 1px dashed var(--color-border); }
+
+  .form-stack { display: flex; flex-direction: column; gap: 1rem; }
+  .form-field { display: flex; flex-direction: column; gap: 0.375rem; }
+
+  .amount-input {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1.75rem !important;
+    text-align: center;
+    padding: 0.75rem !important;
+    letter-spacing: -0.01em;
+  }
+
+  .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.375rem; max-height: 14rem; overflow-y: auto; }
+  .cat-btn { display: flex; align-items: center; gap: 0.375rem; padding: 0.5rem 0.625rem; border: 1px solid var(--color-border); border-radius: 0.75rem; background: var(--color-card); cursor: pointer; font-size: 0.8125rem; -webkit-tap-highlight-color: transparent; transition: all 0.15s; }
+  .cat-btn.selected { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  .cat-name { font-size: 0.75rem; }
+
+  .skeleton { border-radius: 1.25rem; background: linear-gradient(90deg, var(--color-card) 25%, var(--color-card-hover) 50%, var(--color-card) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  .mt-3 { margin-top: 0.75rem; }
+  .mt-4 { margin-top: 1rem; }
+  .mb-2 { margin-bottom: 0.5rem; }
+</style>

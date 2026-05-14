@@ -1,0 +1,33 @@
+{
+  "name": "misha",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "icons": "node scripts/generate-icons.js",
+    "build": "npm run icons && vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.7",
+    "chart.js": "^4.4.2",
+    "idb-keyval": "^6.2.1",
+    "lucide-svelte": "^0.363.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.0",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "svelte": "^4.2.15",
+    "svelte-check": "^3.7.1",
+    "tailwindcss": "^3.4.3",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.10",
+    "vite-plugin-pwa": "^0.20.0",
+    "sharp": "^0.33.3",
+    "workbox-window": "^7.1.0"
+  }
+}
