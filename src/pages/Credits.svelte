@@ -48,6 +48,20 @@
   const RU_MONTHS_SHORT = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек']
   const RU_MONTHS_FULL  = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 
+  function fmtNum(n: number): string {
+    return Math.round(n).toLocaleString('ru-RU')
+  }
+
+  function parseNum(s: string): number {
+    return parseFloat(s.replace(/\s/g, '').replace(',', '.')) || 0
+  }
+
+  function formatInput(s: string): string {
+    const n = parseFloat(s.replace(/\s/g, '').replace(',', '.'))
+    if (isNaN(n)) return s
+    return Math.round(n).toLocaleString('ru-RU')
+  }
+
   function fmt(d: string | null | undefined): string {
     if (!d) return ''
     const p = d.split('-')
@@ -144,9 +158,15 @@
   let fIsComplex = false
   let fNotes = ''
 
+  // Formatted display values for number inputs
+  let fTotalDisplay = ''
+  let fRemainingDisplay = ''
+  let fMonthlyDisplay = ''
+
   // ── Payment form ───────────────────────────────────────────────────────────
   let fPayDate = todayDate
   let fPayAmount = ''
+  let fPayAmountDisplay = ''
   let fPayPaid = true
   let fPayNotes = ''
 
@@ -183,14 +203,18 @@
   function openNewCredit() {
     editingCredit = null
     fName = ''; fTotal = ''; fRemaining = ''; fMonthly = ''; fPaymentDay = ''
+    fTotalDisplay = ''; fRemainingDisplay = ''; fMonthlyDisplay = ''
     fStartDate = todayDate; fEndDate = ''; fIsComplex = false; fNotes = ''
     showCreditModal = true
   }
 
   function openEditCredit(c: Credit) {
     editingCredit = c
-    fName = c.name; fTotal = String(c.total_amount); fRemaining = String(c.remaining)
+    fName = c.name
+    fTotal = String(c.total_amount); fTotalDisplay = fmtNum(c.total_amount)
+    fRemaining = String(c.remaining); fRemainingDisplay = fmtNum(c.remaining)
     fMonthly = c.monthly_payment != null ? String(c.monthly_payment) : ''
+    fMonthlyDisplay = c.monthly_payment != null ? fmtNum(c.monthly_payment) : ''
     fPaymentDay = c.payment_day != null ? String(c.payment_day) : ''
     fStartDate = c.start_date; fEndDate = c.end_date ?? ''
     fIsComplex = c.is_complex; fNotes = c.notes ?? ''
@@ -198,13 +222,16 @@
   }
 
   async function saveCredit() {
-    if (!fName.trim() || !fTotal || !fRemaining) return
+    const totalVal = parseNum(fTotalDisplay || fTotal)
+    const remainingVal = parseNum(fRemainingDisplay || fRemaining)
+    if (!fName.trim() || !totalVal || !remainingVal) return
+    const monthlyVal = fMonthlyDisplay || fMonthly ? parseNum(fMonthlyDisplay || fMonthly) : null
     const payload = {
       user_id: $user!.id,
       name: fName.trim(),
-      total_amount: parseFloat(fTotal),
-      remaining: parseFloat(fRemaining),
-      monthly_payment: fMonthly ? parseFloat(fMonthly) : null,
+      total_amount: totalVal,
+      remaining: remainingVal,
+      monthly_payment: monthlyVal || null,
       payment_day: fPaymentDay ? parseInt(fPaymentDay) : null,
       start_date: fStartDate,
       end_date: fEndDate || null,
@@ -232,14 +259,16 @@
   function openAddPayment() {
     fPayDate = todayDate
     fPayAmount = activeCredit?.monthly_payment ? String(activeCredit.monthly_payment) : ''
-    fPayPaid = !activeCredit?.is_complex  // simple → always paid; complex → default unpaid (scheduled)
+    fPayAmountDisplay = activeCredit?.monthly_payment ? fmtNum(activeCredit.monthly_payment) : ''
+    fPayPaid = !activeCredit?.is_complex
     fPayNotes = ''
     showPaymentModal = true
   }
 
   async function savePayment() {
-    if (!fPayAmount || !activeCredit) return
-    const amount = parseFloat(fPayAmount)
+    if (!activeCredit) return
+    const amount = parseNum(fPayAmountDisplay || fPayAmount)
+    if (!amount) return
     const { data } = await supabase.from('credit_payments').insert({
       user_id: $user!.id, credit_id: activeCredit.id,
       date: fPayDate, amount, paid: fPayPaid, notes: fPayNotes.trim() || null,
@@ -306,12 +335,12 @@
         <div class="summary-row">
           <div>
             <span class="summary-label">Общий долг</span>
-            <span class="summary-amount">{totalRemaining.toLocaleString('ru')} ₽</span>
+            <span class="summary-amount">{totalRemaining.toLocaleString('ru-RU')} ₽</span>
           </div>
           {#if totalMonthly > 0}
             <div class="summary-monthly">
               <span class="summary-label">В месяц</span>
-              <span class="summary-monthly-val">{totalMonthly.toLocaleString('ru')} ₽</span>
+              <span class="summary-monthly-val">{totalMonthly.toLocaleString('ru-RU')} ₽</span>
             </div>
           {/if}
         </div>
@@ -332,7 +361,7 @@
                   <span class="complex-badge">Сплит</span>
                 {/if}
               </div>
-              <span class="credit-remaining">{credit.remaining.toLocaleString('ru')} ₽</span>
+              <span class="credit-remaining">{credit.remaining.toLocaleString('ru-RU')} ₽</span>
             </div>
 
             <div class="progress-bar">
@@ -340,12 +369,12 @@
             </div>
             <div class="progress-labels">
               <span>{pct}% выплачено</span>
-              <span>из {credit.total_amount.toLocaleString('ru')} ₽</span>
+              <span>из {credit.total_amount.toLocaleString('ru-RU')} ₽</span>
             </div>
 
             <div class="credit-meta">
               {#if credit.monthly_payment}
-                <span class="meta-chip">{credit.monthly_payment.toLocaleString('ru')} ₽/мес</span>
+                <span class="meta-chip">{credit.monthly_payment.toLocaleString('ru-RU')} ₽/мес</span>
               {/if}
               {#if nextDate && days !== null && !credit.is_complex}
                 <span class="meta-chip" class:urgent={days <= 3 && days >= 0} class:overdue={days < 0}>
@@ -393,8 +422,8 @@
       <div class="hero-top">
         <div>
           <span class="detail-remaining-label">Осталось</span>
-          <span class="detail-remaining-amount">{activeCredit.remaining.toLocaleString('ru')} ₽</span>
-          <span class="detail-total-sub">из {activeCredit.total_amount.toLocaleString('ru')} ₽ · {pct}% выплачено</span>
+          <span class="detail-remaining-amount">{activeCredit.remaining.toLocaleString('ru-RU')} ₽</span>
+          <span class="detail-total-sub">из {activeCredit.total_amount.toLocaleString('ru-RU')} ₽ · {pct}% выплачено</span>
         </div>
         {#if spark}
           <div class="sparkline" style="color:var(--color-accent)">{@html spark}</div>
@@ -409,7 +438,7 @@
         {#if activeCredit.monthly_payment}
           <div class="detail-meta-block">
             <span class="detail-meta-label">Платёж</span>
-            <span class="detail-meta-val">{activeCredit.monthly_payment.toLocaleString('ru')} ₽</span>
+            <span class="detail-meta-val">{activeCredit.monthly_payment.toLocaleString('ru-RU')} ₽</span>
           </div>
         {/if}
         {#if activeCredit.payment_day && !activeCredit.is_complex}
@@ -460,7 +489,7 @@
           {@const d = daysUntil(p.date)}
           <div class="payment-row upcoming">
             <div class="payment-info">
-              <span class="payment-amount">{p.amount.toLocaleString('ru')} ₽</span>
+              <span class="payment-amount">{p.amount.toLocaleString('ru-RU')} ₽</span>
               <span class="payment-date">
                 {fmt(p.date)}
                 {#if d !== null}
@@ -493,13 +522,13 @@
         <div class="month-group">
           <div class="month-header">
             <span class="month-label">{group.label}</span>
-            <span class="month-sum">−{group.payments.reduce((s, p) => s + p.amount, 0).toLocaleString('ru')} ₽</span>
+            <span class="month-sum">−{group.payments.reduce((s, p) => s + p.amount, 0).toLocaleString('ru-RU')} ₽</span>
           </div>
           <div class="payment-list">
             {#each group.payments as p}
               <div class="payment-row">
                 <div class="payment-info">
-                  <span class="payment-amount">−{p.amount.toLocaleString('ru')} ₽</span>
+                  <span class="payment-amount">−{p.amount.toLocaleString('ru-RU')} ₽</span>
                   <span class="payment-date">{fmt(p.date)}</span>
                   {#if p.notes}<span class="payment-note">{p.notes}</span>{/if}
                 </div>
@@ -543,11 +572,25 @@
   <div class="form-row">
     <div class="form-group" style="flex:1">
       <label class="form-label">Сумма всего *</label>
-      <input class="form-input" type="number" bind:value={fTotal} placeholder="500 000" />
+      <input
+        class="form-input"
+        type="text"
+        inputmode="numeric"
+        bind:value={fTotalDisplay}
+        on:blur={() => { fTotal = fTotalDisplay.replace(/\s/g,''); fTotalDisplay = fTotal ? formatInput(fTotal) : '' }}
+        placeholder="99 999"
+      />
     </div>
     <div class="form-group" style="flex:1">
       <label class="form-label">Осталось *</label>
-      <input class="form-input" type="number" bind:value={fRemaining} placeholder="320 000" />
+      <input
+        class="form-input"
+        type="text"
+        inputmode="numeric"
+        bind:value={fRemainingDisplay}
+        on:blur={() => { fRemaining = fRemainingDisplay.replace(/\s/g,''); fRemainingDisplay = fRemaining ? formatInput(fRemaining) : '' }}
+        placeholder="83 884"
+      />
     </div>
   </div>
 
@@ -555,11 +598,18 @@
     <div class="form-row">
       <div class="form-group" style="flex:1">
         <label class="form-label">Платёж/мес</label>
-        <input class="form-input" type="number" bind:value={fMonthly} placeholder="15 000" />
+        <input
+          class="form-input"
+          type="text"
+          inputmode="numeric"
+          bind:value={fMonthlyDisplay}
+          on:blur={() => { fMonthly = fMonthlyDisplay.replace(/\s/g,''); fMonthlyDisplay = fMonthly ? formatInput(fMonthly) : '' }}
+          placeholder="6 836"
+        />
       </div>
       <div class="form-group" style="flex:1">
         <label class="form-label">Число платежа</label>
-        <input class="form-input" type="number" min="1" max="31" bind:value={fPaymentDay} placeholder="15" />
+        <input class="form-input" type="number" min="1" max="31" bind:value={fPaymentDay} placeholder="8" />
       </div>
     </div>
   {/if}
@@ -591,7 +641,14 @@
   <div class="form-row">
     <div class="form-group" style="flex:1">
       <label class="form-label">Сумма *</label>
-      <input class="form-input" type="number" bind:value={fPayAmount} placeholder="15 000" />
+      <input
+        class="form-input"
+        type="text"
+        inputmode="numeric"
+        bind:value={fPayAmountDisplay}
+        on:blur={() => { fPayAmount = fPayAmountDisplay.replace(/\s/g,''); fPayAmountDisplay = fPayAmount ? formatInput(fPayAmount) : '' }}
+        placeholder="6 836"
+      />
     </div>
     <div class="form-group" style="flex:1">
       <label class="form-label">Дата</label>
