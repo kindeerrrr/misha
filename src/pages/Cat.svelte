@@ -292,13 +292,18 @@
     else if (arr === 'food') foodOrders = foodOrders.filter(f => f.id !== id)
   }
 
-  function fmt(d: string | null | undefined) {
+  const RU_MONTHS = ['янв.','фев.','мар.','апр.','мая','июн.','июл.','авг.','сен.','окт.','ноя.','дек.']
+  function fmt(d: string | null | undefined): string {
     if (!d) return ''
-    return new Date(d + 'T12:00:00').toLocaleDateString('ru', { day: 'numeric', month: 'short' })
+    const parts = d.split('-')
+    if (parts.length < 3) return ''
+    return `${parseInt(parts[2])} ${RU_MONTHS[parseInt(parts[1]) - 1]}`
   }
-  function fmtFull(d: string | null | undefined) {
+  function fmtFull(d: string | null | undefined): string {
     if (!d) return ''
-    return new Date(d + 'T12:00:00').toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' })
+    const parts = d.split('-')
+    if (parts.length < 3) return ''
+    return `${parseInt(parts[2])} ${RU_MONTHS[parseInt(parts[1]) - 1]} ${parts[0]} г.`
   }
 
   onMount(load)
@@ -417,21 +422,30 @@
             {#if nextVaccine}
               <div class="upcoming-item">
                 <div class="upcoming-icon">{@html icons.pill}</div>
-                <span class="upcoming-label">{nextVaccine.name}</span>
+                <div class="upcoming-info">
+                  <span class="upcoming-type">Прививки</span>
+                  <span class="upcoming-name">{nextVaccine.name}</span>
+                </div>
                 <span class="upcoming-date">{fmt(nextVaccine.next_due)}</span>
               </div>
             {/if}
             {#if nextGroom}
               <div class="upcoming-item">
                 <div class="upcoming-icon">{@html icons.scissors}</div>
-                <span class="upcoming-label">{nextGroom.type}</span>
+                <div class="upcoming-info">
+                  <span class="upcoming-type">Уход</span>
+                  <span class="upcoming-name">{nextGroom.type}</span>
+                </div>
                 <span class="upcoming-date">{fmt(nextGroom.next_due)}</span>
               </div>
             {/if}
             {#if nextFood}
               <div class="upcoming-item">
                 <div class="upcoming-icon">{@html icons.bowl}</div>
-                <span class="upcoming-label">{nextFood.brand}</span>
+                <div class="upcoming-info">
+                  <span class="upcoming-type">Корм</span>
+                  <span class="upcoming-name">{nextFood.brand}</span>
+                </div>
                 <span class="upcoming-date">{fmt(nextFood.next_order)}</span>
               </div>
             {/if}
@@ -786,7 +800,9 @@
   .upcoming-item { display: flex; align-items: center; gap: 0.625rem; padding: 0.625rem 0.875rem; background: var(--color-card); border: 1px solid var(--color-border); border-radius: 0.875rem; }
   .upcoming-icon { width: 1.25rem; height: 1.25rem; color: var(--color-muted); flex-shrink: 0; }
   .upcoming-icon :global(svg) { width: 100%; height: 100%; }
-  .upcoming-label { flex: 1; font-size: 0.9375rem; color: var(--color-text); }
+  .upcoming-info { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .upcoming-type { font-size: 0.6875rem; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .upcoming-name { font-size: 0.9375rem; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .upcoming-date { font-size: 0.8125rem; color: var(--color-accent); font-family: "JetBrains Mono", monospace; white-space: nowrap; }
 
   /* Section view header */
