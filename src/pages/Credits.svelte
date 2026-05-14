@@ -222,10 +222,10 @@
 
   $: filteredPayments = (() => {
     const now = new Date(); now.setHours(0, 0, 0, 0)
-    const cutoff = new Date(now)
-    if (payFilter === 'week') cutoff.setDate(cutoff.getDate() + 7)
-    else if (payFilter === 'month') cutoff.setDate(cutoff.getDate() + 30)
-    else return allUpcomingFlat
+    if (payFilter === 'all') return allUpcomingFlat
+    let cutoff: Date
+    if (payFilter === 'week') { cutoff = new Date(now); cutoff.setDate(cutoff.getDate() + 7) }
+    else { cutoff = new Date(now.getFullYear(), now.getMonth() + 1, 0) } // last day of current month
     return allUpcomingFlat.filter(p => new Date(p.date + 'T12:00:00') <= cutoff)
   })()
 
@@ -902,6 +902,11 @@
                 {@const realP = payments.find(x => x.id === p.paymentId)}
                 {#if realP}
                   <button class="pay-btn" on:click={() => markPaid(realP)}>Оплатить</button>
+                {/if}
+              {:else}
+                {@const c = credits.find(x => x.id === p.creditId)}
+                {#if c}
+                  <button class="pay-btn outline" on:click={() => openDetail(c)}>Внести</button>
                 {/if}
               {/if}
             </div>
@@ -1672,6 +1677,11 @@
     font-family: inherit; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
   }
   .pay-btn:active { opacity: 0.8; }
+  .pay-btn.outline {
+    background: transparent;
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent);
+  }
 
   .delete-btn-sm {
     background: none; border: none; cursor: pointer;
