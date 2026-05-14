@@ -249,8 +249,16 @@
   }
 
   $: totalRemaining = credits.reduce((s, c) => s + c.remaining, 0)
+  // payments referenced directly so Svelte tracks the dependency
   $: totalMonthly = credits.reduce((s, c) => {
-    if (c.is_complex) return s + complexMonthlySum(c.id)
+    if (c.is_complex) {
+      const upcoming = payments
+        .filter(p => p.credit_id === c.id && !p.paid)
+        .sort((a, b) => a.date.localeCompare(b.date))
+      if (upcoming.length === 0) return s
+      const nm = upcoming[0].date.slice(0, 7)
+      return s + upcoming.filter(p => p.date.slice(0, 7) === nm).reduce((sum, p) => sum + p.amount, 0)
+    }
     return s + (c.monthly_payment ?? 0)
   }, 0)
   $: totalWithInterestAll = credits.reduce((s, c) => {
@@ -260,9 +268,13 @@
   $: sortedCredits = [...credits].sort((a, b) => {
     if (sortMode === 'name') return a.name.localeCompare(b.name, 'ru')
     if (sortMode === 'amount') return b.remaining - a.remaining
-    // 'date': soonest next payment first; no-date last
-    const da = a.is_complex ? complexNextDate(a.id) : nextPaymentDate(a.payment_day)
-    const db = b.is_complex ? complexNextDate(b.id) : nextPaymentDate(b.payment_day)
+    // payments referenced directly so Svelte tracks the dependency
+    const da = a.is_complex
+      ? (payments.filter(p => p.credit_id === a.id && !p.paid).sort((x, y) => x.date.localeCompare(y.date))[0]?.date ?? null)
+      : nextPaymentDate(a.payment_day)
+    const db = b.is_complex
+      ? (payments.filter(p => p.credit_id === b.id && !p.paid).sort((x, y) => x.date.localeCompare(y.date))[0]?.date ?? null)
+      : nextPaymentDate(b.payment_day)
     if (!da && !db) return 0
     if (!da) return 1
     if (!db) return -1
