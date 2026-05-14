@@ -114,7 +114,7 @@
 
   async function load() {
     if (!$user) return
-    const { data, error } = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('created_at')
+    const { data, error } = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('name')
     if (error) { loadError = error.message; loading = false; return }
     profiles = data ?? []
     if (profiles.length === 1) {
