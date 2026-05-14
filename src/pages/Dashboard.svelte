@@ -3,9 +3,8 @@
   import { supabase, today } from '../lib/supabase'
   import { user } from '../stores/user'
   import { navigate } from '../stores/nav'
-  import Card from '../components/ui/Card.svelte'
   import DateNav from '../components/ui/DateNav.svelte'
-  import type { Medication, MedicationLog, SleepLog, EmotionEntry, Expense } from '../lib/types'
+  import type { Medication, MedicationLog, SleepLog, EmotionEntry } from '../lib/types'
 
   let medications: Medication[] = []
   let pillLogs: MedicationLog[] = []
@@ -15,7 +14,7 @@
   let loading = true
 
   const todayDate = today()
-  let selectedPillDate = todayDate
+  let selectedDate = todayDate
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const greeting = (() => {
@@ -26,33 +25,35 @@
     return 'Добрый вечер'
   })()
 
-  async function load() {
+  async function loadDayData(date: string) {
     if (!$user) return
     const uid = $user.id
-
-    const [medsRes, logsRes, sleepRes, emotRes, expRes] = await Promise.all([
-      supabase.from('medications').select('*').eq('user_id', uid).eq('status', 'active'),
-      supabase.from('medication_logs').select('*').eq('user_id', uid).eq('date', selectedPillDate),
-      supabase.from('sleep_logs').select('*').eq('user_id', uid).eq('date', todayDate).maybeSingle(),
-      supabase.from('emotion_entries').select('*').eq('user_id', uid).eq('date', todayDate).order('recorded_at', { ascending: false }),
-      supabase.from('expenses').select('amount').eq('user_id', uid).gte('date', weekAgo),
+    const [logsRes, sleepRes, emotRes] = await Promise.all([
+      supabase.from('medication_logs').select('*').eq('user_id', uid).eq('date', date),
+      supabase.from('sleep_logs').select('*').eq('user_id', uid).eq('date', date).maybeSingle(),
+      supabase.from('emotion_entries').select('*').eq('user_id', uid).eq('date', date).order('recorded_at', { ascending: false }),
     ])
-
-    medications = medsRes.data ?? []
     pillLogs = logsRes.data ?? []
     sleepLog = sleepRes.data
     emotions = emotRes.data ?? []
-    weekExpenses = (expRes.data ?? []).reduce((sum: number, r: {amount: number}) => sum + r.amount, 0)
+  }
+
+  async function load() {
+    if (!$user) return
+    const uid = $user.id
+    const [medsRes, expRes] = await Promise.all([
+      supabase.from('medications').select('*').eq('user_id', uid).eq('status', 'active'),
+      supabase.from('expenses').select('amount, tx_type').eq('user_id', uid).gte('date', weekAgo),
+    ])
+    medications = medsRes.data ?? []
+    weekExpenses = (expRes.data ?? [])
+      .filter((r: {tx_type?: string}) => !r.tx_type || r.tx_type === 'expense')
+      .reduce((s: number, r: {amount: number}) => s + r.amount, 0)
+    await loadDayData(selectedDate)
     loading = false
   }
 
-  async function loadPillLogs(date: string) {
-    if (!$user) return
-    const res = await supabase.from('medication_logs').select('*').eq('user_id', $user.id).eq('date', date)
-    pillLogs = res.data ?? []
-  }
-
-  $: if (selectedPillDate && !loading) loadPillLogs(selectedPillDate)
+  $: if (!loading && selectedDate) loadDayData(selectedDate)
 
   async function toggleMed(med: Medication) {
     if (!$user) return
@@ -66,7 +67,7 @@
         medication_id: med.id,
         taken_at: new Date().toISOString(),
         skipped: false,
-        date: selectedPillDate,
+        date: selectedDate,
       }).select().single()
       if (data) pillLogs = [...pillLogs, data]
     }
@@ -83,10 +84,6 @@
     return m > 0 ? `${h}ч ${m}м` : `${h}ч`
   }
 
-  function lastEmoji(): string {
-    return emotions[0]?.emoji ?? ''
-  }
-
   onMount(load)
 </script>
 
@@ -97,8 +94,8 @@
       <p class="greeting-label">{greeting}</p>
       <h1 class="section-title">Как дела?</h1>
     </div>
-    <div class="header-date">
-      <span class="number-display">{new Date().toLocaleDateString('ru', { day: 'numeric', month: 'short' })}</span>
+    <div class="header-date number-display">
+      {new Date().toLocaleDateString('ru', { day: 'numeric', month: 'short' })}
     </div>
   </header>
 
@@ -109,9 +106,11 @@
       {/each}
     </div>
   {:else}
-    <!-- Block 1: Today -->
+    <!-- Block 1: Day section with global date nav -->
     <section class="dash-section">
-      <p class="label mb-2">Сегодня</p>
+      <div class="section-header">
+        <DateNav date={selectedDate} on:change={e => selectedDate = e.detail} />
+      </div>
 
       <!-- Pills -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
@@ -119,10 +118,6 @@
         <div class="card-header">
           <span class="card-title">Таблетки</span>
           <span class="card-badge">{pillLogs.filter(l => !l.skipped).length}/{medications.length}</span>
-        </div>
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <div on:click|stopPropagation class="date-nav-wrap">
-          <DateNav date={selectedPillDate} on:change={e => selectedPillDate = e.detail} />
         </div>
         {#if medications.length === 0}
           <p class="empty-hint">Добавь препараты в разделе Здоровье</p>
@@ -147,7 +142,7 @@
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="card mb-3 tap-target" on:click={() => navigate('health', 'sleep')}>
         <div class="card-header">
-          <span class="card-title">Сон прошлой ночью</span>
+          <span class="card-title">Сон</span>
         </div>
         {#if sleepLog}
           <div class="sleep-display">
@@ -161,11 +156,11 @@
         {/if}
       </div>
 
-      <!-- Emotions quick -->
+      <!-- Emotions -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="card tap-target" on:click={() => navigate('emotions')}>
         <div class="card-header">
-          <span class="card-title">Как ты сейчас?</span>
+          <span class="card-title">Настроение</span>
         </div>
         {#if emotions.length > 0}
           <div class="emotion-strip">
@@ -179,15 +174,13 @@
       </div>
     </section>
 
-    <!-- Block 2: Week dynamics -->
+    <!-- Block 2: Week -->
     <section class="dash-section">
       <p class="label mb-2">За неделю</p>
-
-      <!-- Finances quick -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div class="card tap-target" on:click={() => navigate('finances')}>
         <div class="card-header">
-          <span class="card-title">Траты</span>
+          <span class="card-title">Расходы</span>
         </div>
         <div class="finance-row">
           <span class="finance-amount number-display">{weekExpenses.toLocaleString('ru')} ₽</span>
@@ -196,16 +189,11 @@
       </div>
     </section>
 
-    <!-- Block 3: Open links -->
+    <!-- Block 3: Links -->
     <section class="dash-section">
       <p class="label mb-2">Ссылки</p>
       <div class="card">
-        <a
-          href="https://notion.so"
-          target="_blank"
-          rel="noopener"
-          class="notion-link"
-        >
+        <a href="https://notion.so" target="_blank" rel="noopener" class="notion-link">
           <span>Задачи в Notion</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
         </a>
@@ -215,8 +203,6 @@
 </div>
 
 <style>
-  .date-nav-wrap { margin-bottom: 0.75rem; }
-
   .dash-header {
     display: flex;
     align-items: flex-start;
@@ -236,9 +222,14 @@
     padding-top: 0.25rem;
   }
 
-  .dash-section {
-    margin-bottom: 1.5rem;
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.875rem;
   }
+
+  .dash-section { margin-bottom: 1.5rem; }
 
   .card {
     background-color: var(--color-card);
@@ -254,13 +245,7 @@
     margin-bottom: 0.75rem;
   }
 
-  .card-icon { font-size: 1rem; }
-
-  .card-title {
-    font-size: 0.9375rem;
-    color: var(--color-text);
-    flex: 1;
-  }
+  .card-title { font-size: 0.9375rem; color: var(--color-text); flex: 1; }
 
   .card-badge {
     font-family: "JetBrains Mono", monospace;
@@ -271,11 +256,7 @@
     padding: 0.125rem 0.5rem;
   }
 
-  .pill-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
+  .pill-list { display: flex; flex-direction: column; gap: 0.5rem; }
 
   .check-pill {
     display: flex;
@@ -308,65 +289,23 @@
     justify-content: center;
     font-size: 0.75rem;
     flex-shrink: 0;
-    transition: background-color 0.15s;
   }
 
-  .check-pill.checked .check-box {
-    border-color: white;
-    color: white;
-  }
-
+  .check-pill.checked .check-box { border-color: rgba(255,255,255,0.5); color: white; }
   .pill-name { font-size: 0.9375rem; }
 
-  .empty-hint {
-    font-size: 0.8125rem;
-    color: var(--color-muted);
-    margin: 0;
-  }
+  .empty-hint { font-size: 0.8125rem; color: var(--color-muted); margin: 0; }
 
-  .sleep-display {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-  }
+  .sleep-display { display: flex; align-items: baseline; gap: 0.75rem; }
+  .sleep-hours { font-size: 1.75rem; color: var(--color-text); }
+  .sleep-quality { color: var(--color-accent); font-size: 0.875rem; letter-spacing: 1px; }
 
-  .sleep-hours {
-    font-size: 1.75rem;
-    color: var(--color-text);
-  }
+  .emotion-strip { display: flex; gap: 0.375rem; flex-wrap: wrap; }
+  .emotion-chip { font-size: 1.375rem; line-height: 1; }
 
-  .sleep-quality {
-    color: var(--color-accent);
-    font-size: 0.875rem;
-    letter-spacing: 1px;
-  }
-
-  .emotion-strip {
-    display: flex;
-    gap: 0.375rem;
-    flex-wrap: wrap;
-  }
-
-  .emotion-chip {
-    font-size: 1.375rem;
-    line-height: 1;
-  }
-
-  .finance-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.625rem;
-  }
-
-  .finance-amount {
-    font-size: 1.5rem;
-    color: var(--color-text);
-  }
-
-  .finance-label {
-    font-size: 0.8125rem;
-    color: var(--color-muted);
-  }
+  .finance-row { display: flex; align-items: baseline; gap: 0.625rem; }
+  .finance-amount { font-size: 1.5rem; color: var(--color-text); }
+  .finance-label { font-size: 0.8125rem; color: var(--color-muted); }
 
   .notion-link {
     display: flex;
@@ -376,16 +315,9 @@
     text-decoration: none;
     font-size: 0.9375rem;
   }
+  .notion-link span { flex: 1; }
 
-  .notion-link span:nth-child(2) { flex: 1; }
-
-  .skeleton-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding-top: 1rem;
-  }
-
+  .skeleton-list { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 1rem; }
   .skeleton-card {
     height: 6rem;
     border-radius: 1.25rem;
@@ -394,10 +326,10 @@
     animation: shimmer 1.4s infinite;
   }
 
-  @keyframes shimmer {
-    from { background-position: 200% 0; }
-    to { background-position: -200% 0; }
-  }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
+  .tap-target { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: opacity 0.15s; }
+  .tap-target:active { opacity: 0.8; }
+  .mb-2 { margin-bottom: 0.5rem; }
   .mb-3 { margin-bottom: 0.75rem; }
 </style>

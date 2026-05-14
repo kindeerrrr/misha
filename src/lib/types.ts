@@ -179,14 +179,137 @@ export interface Expense {
   user_id: string
   date: string
   amount: number
-  category_id: string
+  category_id: string | null
   category?: ExpenseCategory
   note: string | null
+  tx_type: 'expense' | 'income' | 'saving'
+  created_at: string
+}
+
+// ─── Habits ──────────────────────────────────────────────────────────────────
+
+export interface Habit {
+  id: string
+  user_id: string
+  name: string
+  color: string | null
+  sort_order: number
+  archived: boolean
+  created_at: string
+}
+
+export interface HabitLog {
+  id: string
+  user_id: string
+  habit_id: string
+  date: string
+  created_at: string
+}
+
+// ─── Cat ─────────────────────────────────────────────────────────────────────
+
+export interface CatProfile {
+  id: string
+  user_id: string
+  name: string
+  breed: string | null
+  birth_date: string | null
+  weight_kg: number | null
+  notes: string | null
+}
+
+export interface CatVaccine {
+  id: string
+  user_id: string
+  name: string
+  date: string
+  next_due: string | null
+  clinic: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface CatHealthEvent {
+  id: string
+  user_id: string
+  date: string
+  description: string
+  vet_visit: boolean
+  created_at: string
+}
+
+export interface CatGrooming {
+  id: string
+  user_id: string
+  date: string
+  type: string
+  next_due: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface CatFoodOrder {
+  id: string
+  user_id: string
+  date: string
+  brand: string
+  product: string
+  quantity: string | null
+  price: number | null
+  next_order: string | null
+  created_at: string
+}
+
+// ─── Media ───────────────────────────────────────────────────────────────────
+
+export type MediaType = 'book' | 'film' | 'series'
+export type MediaStatus = 'want' | 'in_progress' | 'done'
+
+export interface MediaItem {
+  id: string
+  user_id: string
+  title: string
+  type: MediaType
+  genre: string | null
+  status: MediaStatus
+  rating: number | null
+  notes: string | null
+  started_at: string | null
+  finished_at: string | null
+  total_pages: number | null
+  current_page: number | null
+  created_at: string
+}
+
+// ─── Credits ─────────────────────────────────────────────────────────────────
+
+export interface Credit {
+  id: string
+  user_id: string
+  name: string
+  total_amount: number
+  remaining: number
+  monthly_payment: number | null
+  payment_day: number | null
+  start_date: string
+  end_date: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface CreditPayment {
+  id: string
+  user_id: string
+  credit_id: string
+  date: string
+  amount: number
+  paid: boolean
+  notes: string | null
   created_at: string
 }
 
 // ─── UI helpers ──────────────────────────────────────────────────────────────
 
 export type Theme = 'latte' | 'sage'
-export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'settings'
+export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'habits' | 'cat' | 'media' | 'settings'
 export type HealthTab = 'pills' | 'sleep' | 'measurements' | 'workouts' | 'doctors' | 'research' | 'checkups'

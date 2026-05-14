@@ -8,6 +8,9 @@
   import Health from './pages/health/Health.svelte'
   import Emotions from './pages/Emotions.svelte'
   import Finances from './pages/Finances.svelte'
+  import Habits from './pages/Habits.svelte'
+  import Media from './pages/Media.svelte'
+  import Cat from './pages/Cat.svelte'
   import Settings from './pages/Settings.svelte'
 </script>
 
@@ -28,6 +31,12 @@
       <Emotions />
     {:else if $activeTab === 'finances'}
       <Finances />
+    {:else if $activeTab === 'habits'}
+      <Habits />
+    {:else if $activeTab === 'media'}
+      <Media />
+    {:else if $activeTab === 'cat'}
+      <Cat />
     {:else if $activeTab === 'settings'}
       <Settings />
     {/if}
