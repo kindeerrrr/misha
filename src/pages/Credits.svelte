@@ -450,13 +450,21 @@
 
   // ── Bulk schedule (for complex credits) ───────────────────────────────────
   let showBulkModal = false
-  let fBulkStartDate = todayDate
+  let fBulkDay = ''
+  let fBulkMonth = ''
+  let fBulkYear = ''
   let fBulkAmount = ''
   let fBulkAmountDisplay = ''
   let fBulkCount = ''
   let fBulkInterval: 'month' | 'week' | 'day' = 'month'
   let fBulkPaid = false
   let bulkSaving = false
+
+  $: fBulkStartDate = (() => {
+    const d = parseInt(fBulkDay), m = parseInt(fBulkMonth), y = parseInt(fBulkYear)
+    if (!d || !m || !y || y < 2020 || y > 2040 || m < 1 || m > 12 || d < 1 || d > 31) return ''
+    return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  })()
 
   $: bulkAmount = parseNum(fBulkAmountDisplay || fBulkAmount)
   $: bulkCount = parseInt(fBulkCount) || 0
@@ -475,7 +483,10 @@
   })()
 
   function openBulkSchedule() {
-    fBulkStartDate = todayDate
+    const now = new Date()
+    fBulkDay = String(now.getDate())
+    fBulkMonth = String(now.getMonth() + 1)
+    fBulkYear = String(now.getFullYear())
     fBulkAmount = activeCredit?.monthly_payment ? String(activeCredit.monthly_payment) : ''
     fBulkAmountDisplay = activeCredit?.monthly_payment ? fmtNum(activeCredit.monthly_payment) : ''
     fBulkCount = ''
@@ -944,7 +955,13 @@
   <div class="form-row">
     <div class="form-group" style="flex:1">
       <label class="form-label">Первая дата</label>
-      <input class="form-input" type="date" bind:value={fBulkStartDate} />
+      <div class="date-trio">
+        <input class="date-part" type="number" inputmode="numeric" min="1" max="31" bind:value={fBulkDay} placeholder="дд" />
+        <span class="date-sep">.</span>
+        <input class="date-part" type="number" inputmode="numeric" min="1" max="12" bind:value={fBulkMonth} placeholder="мм" />
+        <span class="date-sep">.</span>
+        <input class="date-part year" type="number" inputmode="numeric" min="2024" max="2040" bind:value={fBulkYear} placeholder="гггг" />
+      </div>
     </div>
     <div class="form-group" style="flex:1">
       <label class="form-label">Интервал</label>
@@ -1346,6 +1363,25 @@
     cursor: pointer; font-family: inherit; -webkit-tap-highlight-color: transparent;
   }
   .btn-danger:active { opacity: 0.7; }
+
+  /* ── Three-part date input ── */
+  .date-trio {
+    display: flex; align-items: center; gap: 0;
+    background: var(--color-card); border: 1px solid var(--color-border);
+    border-radius: 0.75rem; overflow: hidden; height: 2.5rem;
+  }
+  .date-trio:focus-within { border-color: var(--color-accent); }
+  .date-part {
+    flex: 1; border: none; background: transparent;
+    font-size: 0.9375rem; color: var(--color-text); font-family: inherit;
+    text-align: center; padding: 0; height: 100%;
+    -webkit-appearance: none; -moz-appearance: textfield;
+  }
+  .date-part:focus { outline: none; }
+  .date-part::-webkit-inner-spin-button,
+  .date-part::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .date-part.year { flex: 1.6; }
+  .date-sep { color: var(--color-muted); font-size: 1rem; padding: 0 0.125rem; user-select: none; }
 
   /* ── Bulk schedule preview ── */
   .bulk-preview {
