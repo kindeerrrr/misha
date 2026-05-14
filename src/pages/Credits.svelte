@@ -425,13 +425,16 @@
   }
 
   async function saveEditPayment() {
-    if (!editingPayment || !fEditDate) return
+    if (!editingPayment || !fEditDate || !activeCredit) return
     const amount = parseNum(fEditAmountDisplay || fEditAmount)
     if (!amount) return
     const { data } = await supabase.from('credit_payments')
       .update({ date: fEditDate, amount, notes: fEditNotes.trim() || null })
       .eq('id', editingPayment.id).select().single()
-    if (data) payments = payments.map(x => x.id === data.id ? data : x)
+    if (!data) return
+    const newPayments = payments.map(x => x.id === data.id ? data : x)
+    payments = newPayments
+    if (activeCredit.is_complex) await syncRemaining(activeCredit.id, newPayments)
     showEditPaymentModal = false
     showToast('Сохранено', 'success')
   }
@@ -446,6 +449,21 @@
     showPaymentModal = true
   }
 
+  // For complex credits: remaining = sum of all unpaid payments
+  async function syncRemaining(creditId: string, allPayments: CreditPayment[]) {
+    const c = credits.find(x => x.id === creditId)
+    if (!c) return
+    let newRemaining: number
+    if (c.is_complex) {
+      newRemaining = allPayments.filter(p => p.credit_id === creditId && !p.paid).reduce((s, p) => s + p.amount, 0)
+    } else {
+      return // simple credits manage remaining manually
+    }
+    const { data: updated } = await supabase.from('credits')
+      .update({ remaining: newRemaining }).eq('id', creditId).select().single()
+    if (updated) { credits = credits.map(c => c.id === updated.id ? updated : c); if (activeCredit?.id === updated.id) activeCredit = updated }
+  }
+
   async function savePayment() {
     if (!activeCredit) return
     const amount = parseNum(fPayAmountDisplay || fPayAmount)
@@ -454,9 +472,13 @@
       user_id: $user!.id, credit_id: activeCredit.id,
       date: fPayDate, amount, paid: fPayPaid, notes: fPayNotes.trim() || null,
     }).select().single()
-    if (data) payments = [data, ...payments]
+    if (!data) return
+    const newPayments = [data, ...payments]
+    payments = newPayments
 
-    if (fPayPaid) {
+    if (activeCredit.is_complex) {
+      await syncRemaining(activeCredit.id, newPayments)
+    } else if (fPayPaid) {
       const newRemaining = Math.max(0, activeCredit.remaining - amount)
       const { data: updated } = await supabase.from('credits')
         .update({ remaining: newRemaining }).eq('id', activeCredit.id).select().single()
@@ -469,23 +491,33 @@
   async function markPaid(p: CreditPayment) {
     if (!activeCredit) return
     await supabase.from('credit_payments').update({ paid: true }).eq('id', p.id)
-    payments = payments.map(x => x.id === p.id ? { ...x, paid: true } : x)
-    const newRemaining = Math.max(0, activeCredit.remaining - p.amount)
-    const { data: updated } = await supabase.from('credits')
-      .update({ remaining: newRemaining }).eq('id', activeCredit.id).select().single()
-    if (updated) { credits = credits.map(c => c.id === updated.id ? updated : c); activeCredit = updated }
+    const newPayments = payments.map(x => x.id === p.id ? { ...x, paid: true } : x)
+    payments = newPayments
+
+    if (activeCredit.is_complex) {
+      await syncRemaining(activeCredit.id, newPayments)
+    } else {
+      const newRemaining = Math.max(0, activeCredit.remaining - p.amount)
+      const { data: updated } = await supabase.from('credits')
+        .update({ remaining: newRemaining }).eq('id', activeCredit.id).select().single()
+      if (updated) { credits = credits.map(c => c.id === updated.id ? updated : c); activeCredit = updated }
+    }
     showToast('Оплачено', 'success')
   }
 
   async function deletePayment(p: CreditPayment) {
-    if (p.paid && activeCredit) {
+    await supabase.from('credit_payments').delete().eq('id', p.id)
+    const newPayments = payments.filter(x => x.id !== p.id)
+    payments = newPayments
+
+    if (activeCredit?.is_complex) {
+      await syncRemaining(activeCredit.id, newPayments)
+    } else if (p.paid && activeCredit) {
       const restored = activeCredit.remaining + p.amount
       const { data: updated } = await supabase.from('credits')
         .update({ remaining: restored }).eq('id', activeCredit.id).select().single()
       if (updated) { credits = credits.map(c => c.id === updated.id ? updated : c); activeCredit = updated }
     }
-    await supabase.from('credit_payments').delete().eq('id', p.id)
-    payments = payments.filter(x => x.id !== p.id)
   }
 
   // ── Bulk schedule (for complex credits) ───────────────────────────────────
@@ -547,15 +579,10 @@
       notes: null,
     }))
     const { data } = await supabase.from('credit_payments').insert(rows).select()
-    if (data) payments = [...data, ...payments]
-
-    if (fBulkPaid) {
-      const totalPaid = bulkAmount * bulkPreviewDates.length
-      const newRemaining = Math.max(0, activeCredit.remaining - totalPaid)
-      const { data: updated } = await supabase.from('credits')
-        .update({ remaining: newRemaining }).eq('id', activeCredit.id).select().single()
-      if (updated) { credits = credits.map(c => c.id === updated.id ? updated : c); activeCredit = updated }
-    }
+    if (!data) { bulkSaving = false; return }
+    const newPayments = [...data, ...payments]
+    payments = newPayments
+    await syncRemaining(activeCredit.id, newPayments)
 
     bulkSaving = false
     showBulkModal = false
@@ -695,7 +722,7 @@
     <div class="detail-hero">
       <div class="hero-top">
         <div>
-          <span class="detail-remaining-label">{twi !== null ? 'К выплате с процентами' : 'Осталось'}</span>
+          <span class="detail-remaining-label">{activeCredit.is_complex ? 'Запланировано платежей' : twi !== null ? 'К выплате с процентами' : 'Осталось'}</span>
           <span class="detail-remaining-amount">{(twi ?? activeCredit.remaining).toLocaleString('ru-RU')} ₽</span>
           {#if twi !== null && twi !== activeCredit.remaining}
             <span class="detail-principal-sub">
