@@ -15,7 +15,7 @@
     { id: 'cat',       title: 'Животные',    sub: 'Питомцы, уход, здоровье',    icon: icons.paw },
     { id: 'settings',  title: 'Настройки',   sub: 'Тема и параметры',           icon: icons.settings },
     { id: 'travel',    title: 'Путешествия', sub: 'Поездки и маршруты',         icon: icons.plane },
-    { id: 'dashboard', title: 'Кредиты',     sub: 'Долги и платежи',            icon: icons.credit_card, soon: true },
+    { id: 'credits',   title: 'Кредиты',     sub: 'Долги и платежи',            icon: icons.credit_card },
   ]
 </script>
 
