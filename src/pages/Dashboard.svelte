@@ -87,6 +87,13 @@
     return m > 0 ? `${h}ч ${m}м` : `${h}ч`
   }
 
+  function formatSleepShort(log: SleepLog | null): string {
+    if (!log || !log.duration_minutes) return '—'
+    const h = Math.floor(log.duration_minutes / 60)
+    const m = log.duration_minutes % 60
+    return m > 0 ? `${h}ч${m}` : `${h}ч`
+  }
+
   onMount(load)
 </script>
 
@@ -113,6 +120,30 @@
     <section class="dash-section">
       <div class="section-header">
         <DateNav date={selectedDate} on:change={e => selectedDate = e.detail} />
+      </div>
+
+      <!-- Hero summary -->
+      <div class="hero-card mb-3">
+        <div class="hero-stats">
+          <div class="stat-block">
+            <span class="stat-label">Таблетки</span>
+            <span class="stat-value">
+              {pillLogs.filter(l => !l.skipped).length}<span class="stat-denom">/{medications.length}</span>
+            </span>
+          </div>
+          <div class="stat-sep" />
+          <div class="stat-block">
+            <span class="stat-label">Сон</span>
+            <span class="stat-value">{formatSleepShort(sleepLog)}</span>
+          </div>
+          <div class="stat-sep" />
+          <div class="stat-block">
+            <span class="stat-label">День</span>
+            <span class="stat-value">
+              {dayReport?.overall ?? '—'}<span class="stat-denom">{dayReport?.overall ? '/5' : ''}</span>
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Pills -->
@@ -345,6 +376,8 @@
     margin: 0.5rem 0 0;
     font-style: italic;
   }
+
+  .hero-stats { display: flex; align-items: center; }
 
   .tap-target { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: opacity 0.15s; }
   .tap-target:active { opacity: 0.8; }

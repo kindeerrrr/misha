@@ -7,18 +7,25 @@
   import type { Habit, HabitLog } from '../lib/types'
 
   let habits: Habit[] = []
-  let logs: HabitLog[] = []
+  let logs: HabitLog[] = []       // logs for selectedDate (toggling)
+  let allLogs: HabitLog[] = []    // logs for last 7 days (streaks)
   let loading = true
   let showAddModal = false
 
   const todayDate = today()
   let selectedDate = todayDate
 
+  const weekDates: string[] = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() - (6 - i))
+    return d.toISOString().slice(0, 10)
+  })
+  const weekStart = weekDates[0]
+
   let newName = ''
   let saving = false
 
   const COLORS = ['#c084fc','#fb923c','#34d399','#60a5fa','#f472b6','#a3e635','#fbbf24','#94a3b8']
-
   let newColor = COLORS[0]
 
   async function loadHabits() {
@@ -33,8 +40,14 @@
     logs = res.data ?? []
   }
 
+  async function loadStreakLogs() {
+    if (!$user) return
+    const res = await supabase.from('habit_logs').select('*').eq('user_id', $user.id).gte('date', weekStart).lte('date', todayDate)
+    allLogs = res.data ?? []
+  }
+
   async function load() {
-    await Promise.all([loadHabits(), loadLogs(selectedDate)])
+    await Promise.all([loadHabits(), loadLogs(selectedDate), loadStreakLogs()])
     loading = false
   }
 
@@ -44,19 +57,27 @@
     return logs.some(l => l.habit_id === habit.id)
   }
 
+  function hasLog(habit: Habit, date: string) {
+    return allLogs.some(l => l.habit_id === habit.id && l.date === date)
+  }
+
   async function toggle(habit: Habit) {
     if (!$user) return
     const existing = logs.find(l => l.habit_id === habit.id)
     if (existing) {
       await supabase.from('habit_logs').delete().eq('id', existing.id)
       logs = logs.filter(l => l.id !== existing.id)
+      allLogs = allLogs.filter(l => l.id !== existing.id)
     } else {
       const { data } = await supabase.from('habit_logs').insert({
         user_id: $user.id,
         habit_id: habit.id,
         date: selectedDate,
       }).select().single()
-      if (data) logs = [...logs, data]
+      if (data) {
+        logs = [...logs, data]
+        allLogs = [...allLogs, data]
+      }
     }
   }
 
@@ -83,6 +104,15 @@
 
   function doneCount() { return logs.length }
 
+  function streakCount(habit: Habit): number {
+    let count = 0
+    for (let i = weekDates.length - 1; i >= 0; i--) {
+      if (hasLog(habit, weekDates[i])) count++
+      else break
+    }
+    return count
+  }
+
   onMount(load)
 </script>
 
@@ -97,10 +127,22 @@
   </div>
 
   {#if !loading && habits.length > 0}
-    <div class="progress-row">
-      <span class="progress-text">{doneCount()} из {habits.length}</span>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width:{Math.round(doneCount()/habits.length*100)}%" />
+    <div class="hero-card mb-4">
+      <div class="hero-stats">
+        <div class="stat-block">
+          <span class="stat-label">Выполнено</span>
+          <span class="stat-value">{doneCount()}<span class="stat-denom">/{habits.length}</span></span>
+        </div>
+        <div class="stat-sep" />
+        <div class="stat-block" style="flex:2; align-items:flex-start; padding-left:1rem">
+          <span class="stat-label">Прогресс</span>
+          <div class="hero-bar-wrap">
+            <div class="hero-bar">
+              <div class="hero-bar-fill" style="width:{Math.round(doneCount() / habits.length * 100)}%" />
+            </div>
+            <span class="hero-pct">{Math.round(doneCount() / habits.length * 100)}%</span>
+          </div>
+        </div>
       </div>
     </div>
   {/if}
@@ -110,7 +152,7 @@
   {:else if habits.length === 0}
     <div class="empty-state mt-4">Добавь первую привычку →</div>
   {:else}
-    <div class="habit-list mt-3">
+    <div class="habit-list">
       {#each habits as habit}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <div
@@ -119,10 +161,27 @@
           on:click={() => toggle(habit)}
           style="--habit-color:{habit.color ?? 'var(--color-accent)'}"
         >
-          <div class="habit-check">{isDone(habit) ? '✓' : ''}</div>
-          <span class="habit-name">{habit.name}</span>
-          <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-          <button class="archive-btn" on:click|stopPropagation={() => archive(habit)}>×</button>
+          <div class="habit-main">
+            <div class="habit-top">
+              <div class="habit-check">{isDone(habit) ? '✓' : ''}</div>
+              <span class="habit-name">{habit.name}</span>
+              <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+              <button class="archive-btn" on:click|stopPropagation={() => archive(habit)}>×</button>
+            </div>
+            <div class="streak-dots">
+              {#each weekDates as d}
+                <div
+                  class="streak-dot"
+                  class:filled={hasLog(habit, d)}
+                  class:is-today={d === todayDate}
+                  style="--dot-color:{habit.color ?? 'var(--color-accent)'}"
+                />
+              {/each}
+              {#if streakCount(habit) > 0}
+                <span class="streak-label">{streakCount(habit)}д подряд</span>
+              {/if}
+            </div>
+          </div>
         </div>
       {/each}
     </div>
@@ -168,20 +227,18 @@
     cursor: pointer;
   }
 
-  .date-row { display: flex; justify-content: center; margin-bottom: 1rem; }
+  .date-row { display: flex; justify-content: center; margin-bottom: 0.875rem; }
 
-  .progress-row {
-    display: flex; align-items: center; gap: 0.75rem;
-    margin-bottom: 0.25rem;
-  }
-  .progress-text { font-size: 0.8125rem; color: var(--color-muted); white-space: nowrap; }
-  .progress-bar { flex: 1; height: 4px; background: var(--color-border); border-radius: 2px; overflow: hidden; }
-  .progress-fill { height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 0.3s; }
+  .hero-stats { display: flex; align-items: center; }
+
+  .hero-bar-wrap { display: flex; align-items: center; gap: 0.5rem; width: 100%; margin-top: 2px; }
+  .hero-bar { flex: 1; height: 5px; background: var(--color-border); border-radius: 3px; overflow: hidden; }
+  .hero-bar-fill { height: 100%; background: var(--color-accent); border-radius: 3px; transition: width 0.4s; }
+  .hero-pct { font-family: "JetBrains Mono", monospace; font-size: 0.75rem; color: var(--color-muted); white-space: nowrap; }
 
   .habit-list { display: flex; flex-direction: column; gap: 0.5rem; }
 
   .habit-row {
-    display: flex; align-items: center; gap: 0.875rem;
     padding: 0.875rem 1rem;
     background: var(--color-card); border: 1.5px solid var(--color-border);
     border-radius: 1rem; cursor: pointer;
@@ -193,6 +250,9 @@
     border-color: var(--habit-color);
     color: white;
   }
+
+  .habit-main { display: flex; flex-direction: column; gap: 0.5rem; }
+  .habit-top { display: flex; align-items: center; gap: 0.875rem; }
 
   .habit-check {
     width: 1.5rem; height: 1.5rem; border-radius: 50%;
@@ -211,6 +271,14 @@
   }
   .habit-row.done .archive-btn { color: white; opacity: 0.6; }
 
+  .streak-label {
+    font-size: 0.6875rem;
+    color: var(--color-muted);
+    margin-left: 0.25rem;
+    white-space: nowrap;
+  }
+  .habit-row.done .streak-label { color: rgba(255,255,255,0.7); }
+
   .color-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .color-dot {
     width: 2rem; height: 2rem; border-radius: 50%; border: 3px solid transparent;
@@ -226,6 +294,6 @@
   .skeleton { border-radius: 1.25rem; background: linear-gradient(90deg, var(--color-card) 25%, var(--color-card-hover) 50%, var(--color-card) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
-  .mt-3 { margin-top: 0.75rem; }
+  .mb-4 { margin-bottom: 1rem; }
   .mt-4 { margin-top: 1rem; }
 </style>
