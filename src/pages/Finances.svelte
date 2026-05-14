@@ -99,17 +99,9 @@
     return 'за месяц'
   }
 
-  function totalExpenses() {
-    return expenses.filter(e => !e.tx_type || e.tx_type === 'expense').reduce((s, e) => s + e.amount, 0)
-  }
-
-  function totalIncome() {
-    return expenses.filter(e => e.tx_type === 'income').reduce((s, e) => s + e.amount, 0)
-  }
-
-  function totalSavings() {
-    return expenses.filter(e => e.tx_type === 'saving').reduce((s, e) => s + e.amount, 0)
-  }
+  $: expenseTotal = expenses.filter(e => !e.tx_type || e.tx_type === 'expense').reduce((s, e) => s + Number(e.amount), 0)
+  $: incomeTotal = expenses.filter(e => e.tx_type === 'income').reduce((s, e) => s + Number(e.amount), 0)
+  $: savingsTotal = expenses.filter(e => e.tx_type === 'saving').reduce((s, e) => s + Number(e.amount), 0)
 
   function groupByDate() {
     const groups: Record<string, Expense[]> = {}
@@ -163,17 +155,17 @@
   <div class="summary-row">
     <div class="summary-card">
       <span class="label">Расходы · {periodLabel(period)}</span>
-      <span class="summary-amount number-display">{totalExpenses().toLocaleString('ru')} ₽</span>
+      <span class="summary-amount number-display">{expenseTotal.toLocaleString('ru')} ₽</span>
     </div>
     <div class="summary-card income">
       <span class="label">Доходы · {periodLabel(period)}</span>
-      <span class="summary-amount number-display" style="color:var(--color-success)">{totalIncome().toLocaleString('ru')} ₽</span>
+      <span class="summary-amount number-display" style="color:var(--color-success)">{incomeTotal.toLocaleString('ru')} ₽</span>
     </div>
   </div>
-  {#if totalSavings() > 0}
+  {#if savingsTotal > 0}
     <div class="saving-row">
       <span class="label">Накопления · {periodLabel(period)}</span>
-      <span class="number-display" style="color:var(--color-accent2)">{totalSavings().toLocaleString('ru')} ₽</span>
+      <span class="number-display" style="color:var(--color-accent2)">{savingsTotal.toLocaleString('ru')} ₽</span>
     </div>
   {/if}
 

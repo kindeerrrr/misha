@@ -17,48 +17,40 @@
 
   const DAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
-  function localDateStr(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }
+  type WeekCell = { date: string; num: number; label: string }
 
-  function getWeekDates(offset: number): string[] {
+  function buildWeekCells(offset: number): WeekCell[] {
     const now = new Date()
-    const dayOfWeek = now.getDay() // 0=Sun
-    const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-    return Array.from({ length: 7 }, (_, i) => {
+    const dow = now.getDay()
+    const diff = dow === 0 ? 6 : dow - 1
+    return DAY_LABELS.map((label, i) => {
       const d = new Date(now)
       d.setDate(now.getDate() - diff + i + offset * 7)
-      return localDateStr(d)
+      const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      return { date, num: d.getDate(), label }
     })
   }
 
-  let weekDates: string[] = getWeekDates(0)
-  let weekStart = weekDates[0]
-  let weekEnd = weekDates[6]
+  let weekCells: WeekCell[] = buildWeekCells(0)
+  let weekStart = weekCells[0].date
+  let weekEnd = weekCells[6].date
 
   $: {
-    weekDates = getWeekDates(weekOffset)
-    weekStart = weekDates[0]
-    weekEnd = weekDates[6]
+    weekCells = buildWeekCells(weekOffset)
+    weekStart = weekCells[0].date
+    weekEnd = weekCells[6].date
   }
 
-  function weekLabel(dates: string[]): string {
-    if (!dates.length) return ''
-    const start = new Date(dates[0] + 'T12:00:00')
-    const end = new Date(dates[6] + 'T12:00:00')
-    const startDay = start.getDate()
-    const endDay = end.getDate()
-    const startMonth = start.toLocaleDateString('ru', { month: 'short' })
-    const endMonth = end.toLocaleDateString('ru', { month: 'short' })
-    if (start.getMonth() === end.getMonth()) {
-      return `${startDay}–${endDay} ${endMonth}`
-    }
-    return `${startDay} ${startMonth} – ${endDay} ${endMonth}`
-  }
-
-  function dayNum(dateStr: string): number {
-    return new Date(dateStr + 'T12:00:00').getDate()
-  }
+  $: weekLabel = (() => {
+    if (!weekCells.length) return ''
+    const s = weekCells[0]; const e = weekCells[6]
+    const sd = new Date(s.date + 'T12:00:00'); const ed = new Date(e.date + 'T12:00:00')
+    const sm = sd.toLocaleDateString('ru', { month: 'short' })
+    const em = ed.toLocaleDateString('ru', { month: 'short' })
+    return sd.getMonth() === ed.getMonth()
+      ? `${s.num}–${e.num} ${em}`
+      : `${s.num} ${sm} – ${e.num} ${em}`
+  })()
 
   let newName = ''
   let saving = false
@@ -107,7 +99,7 @@
   }
 
   async function load() {
-    await Promise.all([loadHabits(), loadLogs(selectedDate), loadWeekLogs(weekDates[0], weekDates[6])])
+    await Promise.all([loadHabits(), loadLogs(selectedDate), loadWeekLogs(weekCells[0].date, weekCells[6].date)])
     loading = false
   }
 
@@ -134,22 +126,39 @@
     if (togglingHabits.has(key)) return
     togglingHabits.add(key)
     const existing = allLogs.find(l => l.habit_id === habit.id && l.date === date)
+    // Optimistic update — apply immediately, rollback on error
+    const tempId = `temp-${Date.now()}`
+    if (existing) {
+      allLogs = allLogs.filter(l => l.id !== existing.id)
+      if (date === selectedDate) logs = logs.filter(l => l.id !== existing.id)
+    } else {
+      const tempLog = { id: tempId, habit_id: habit.id, user_id: $user.id, date, created_at: new Date().toISOString() } as HabitLog
+      allLogs = [...allLogs, tempLog]
+      if (date === selectedDate) logs = [...logs, tempLog]
+    }
     try {
       if (existing) {
-        await supabase.from('habit_logs').delete().eq('id', existing.id)
-        allLogs = allLogs.filter(l => l.id !== existing.id)
-        if (date === selectedDate) logs = logs.filter(l => l.id !== existing.id)
+        const { error } = await supabase.from('habit_logs').delete().eq('id', existing.id)
+        if (error) {
+          allLogs = [...allLogs, existing]
+          if (date === selectedDate) logs = [...logs, existing]
+        }
       } else {
-        const { data } = await supabase.from('habit_logs').insert({
+        const { data, error } = await supabase.from('habit_logs').insert({
           user_id: $user.id,
           habit_id: habit.id,
           date: date,
         }).select().single()
-        if (data) {
-          allLogs = [...allLogs, data]
-          if (date === selectedDate) logs = [...logs, data]
+        if (error || !data) {
+          allLogs = allLogs.filter(l => l.id !== tempId)
+          if (date === selectedDate) logs = logs.filter(l => l.id !== tempId)
+        } else {
+          allLogs = allLogs.map(l => l.id === tempId ? data : l)
+          if (date === selectedDate) logs = logs.map(l => l.id === tempId ? data : l)
         }
       }
+    } catch {
+      // rollback already handled above
     } finally {
       togglingHabits.delete(key)
     }
@@ -194,23 +203,23 @@
   <!-- Week nav -->
   <div class="week-nav">
     <button class="week-arrow" on:click={() => weekOffset -= 1}>←</button>
-    <span class="week-label">{weekLabel(weekDates)}</span>
+    <span class="week-label">{weekLabel}</span>
     <button class="week-arrow" class:disabled={weekOffset >= 0} on:click={() => { if (weekOffset < 0) weekOffset += 1 }}>→</button>
   </div>
 
   <!-- Day strip -->
   <div class="day-strip">
-    {#each weekDates as d, i}
+    {#each weekCells as cell}
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div
         class="day-cell"
-        class:selected={d === selectedDate}
-        class:is-today={d === todayDate}
-        class:future={d > todayDate}
-        on:click={() => d <= todayDate && selectDay(d)}
+        class:selected={cell.date === selectedDate}
+        class:is-today={cell.date === todayDate}
+        class:future={cell.date > todayDate}
+        on:click={() => cell.date <= todayDate && selectDay(cell.date)}
       >
-        <span class="day-label-text">{DAY_LABELS[i]}</span>
-        <span class="day-num">{dayNum(d)}</span>
+        <span class="day-label-text">{cell.label}</span>
+        <span class="day-num">{cell.num}</span>
       </div>
     {/each}
   </div>
@@ -258,15 +267,15 @@
               <button class="archive-btn" on:click|stopPropagation={() => archive(habit)}>×</button>
             </div>
             <div class="streak-dots">
-              {#each weekDates as d}
+              {#each weekCells as cell}
                 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                 <div
                   class="streak-dot"
-                  class:filled={hasLog(habit, d)}
-                  class:is-today={d === selectedDate}
-                  class:future-dot={d > todayDate}
+                  class:filled={hasLog(habit, cell.date)}
+                  class:is-today={cell.date === selectedDate}
+                  class:future-dot={cell.date > todayDate}
                   style="--dot-color:{habit.color ?? 'var(--color-accent)'}"
-                  on:click|stopPropagation={() => d <= todayDate && toggleForDate(habit, d)}
+                  on:click|stopPropagation={() => cell.date <= todayDate && toggleForDate(habit, cell.date)}
                 />
               {/each}
             </div>
@@ -473,6 +482,22 @@
     opacity: 0.5;
   }
   .habit-row.done .archive-btn { color: white; opacity: 0.6; }
+
+  .streak-dots { display: flex; gap: 0.25rem; }
+
+  .streak-dot {
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 50%;
+    background: var(--color-border);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .streak-dot:active { transform: scale(0.85); }
+  .streak-dot.filled { background: var(--dot-color); }
+  .streak-dot.is-today { outline: 2px solid var(--dot-color); outline-offset: 1px; }
 
   .future-dot { opacity: 0.2; cursor: default; }
 
