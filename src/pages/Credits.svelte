@@ -462,7 +462,7 @@
 
   $: fBulkStartDate = (() => {
     const d = parseInt(fBulkDay), m = parseInt(fBulkMonth), y = parseInt(fBulkYear)
-    if (!d || !m || !y || y < 2020 || y > 2040 || m < 1 || m > 12 || d < 1 || d > 31) return ''
+    if (!d || !m || !y || y < 2020 || y > 2040 || m < 1 || m > 12 || d < 1 || d > 31 || fBulkYear.length < 4) return ''
     return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
   })()
 
@@ -484,8 +484,8 @@
 
   function openBulkSchedule() {
     const now = new Date()
-    fBulkDay = String(now.getDate())
-    fBulkMonth = String(now.getMonth() + 1)
+    fBulkDay = String(now.getDate()).padStart(2, '0')
+    fBulkMonth = String(now.getMonth() + 1).padStart(2, '0')
     fBulkYear = String(now.getFullYear())
     fBulkAmount = activeCredit?.monthly_payment ? String(activeCredit.monthly_payment) : ''
     fBulkAmountDisplay = activeCredit?.monthly_payment ? fmtNum(activeCredit.monthly_payment) : ''
@@ -956,11 +956,34 @@
     <div class="form-group" style="flex:1">
       <label class="form-label">Первая дата</label>
       <div class="date-trio">
-        <input class="date-part" type="number" inputmode="numeric" min="1" max="31" bind:value={fBulkDay} placeholder="дд" />
+        <input
+          class="date-part"
+          type="text"
+          inputmode="numeric"
+          maxlength="2"
+          bind:value={fBulkDay}
+          placeholder="дд"
+          on:input={e => { if (e.currentTarget.value.length === 2) e.currentTarget.nextElementSibling?.nextElementSibling?.focus() }}
+        />
         <span class="date-sep">.</span>
-        <input class="date-part" type="number" inputmode="numeric" min="1" max="12" bind:value={fBulkMonth} placeholder="мм" />
+        <input
+          class="date-part"
+          type="text"
+          inputmode="numeric"
+          maxlength="2"
+          bind:value={fBulkMonth}
+          placeholder="мм"
+          on:input={e => { if (e.currentTarget.value.length === 2) e.currentTarget.nextElementSibling?.nextElementSibling?.focus() }}
+        />
         <span class="date-sep">.</span>
-        <input class="date-part year" type="number" inputmode="numeric" min="2024" max="2040" bind:value={fBulkYear} placeholder="гггг" />
+        <input
+          class="date-part year"
+          type="text"
+          inputmode="numeric"
+          maxlength="4"
+          bind:value={fBulkYear}
+          placeholder="гггг"
+        />
       </div>
     </div>
     <div class="form-group" style="flex:1">
@@ -1378,8 +1401,6 @@
     -webkit-appearance: none; -moz-appearance: textfield;
   }
   .date-part:focus { outline: none; }
-  .date-part::-webkit-inner-spin-button,
-  .date-part::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .date-part.year { flex: 1.6; }
   .date-sep { color: var(--color-muted); font-size: 1rem; padding: 0 0.125rem; user-select: none; }
 
