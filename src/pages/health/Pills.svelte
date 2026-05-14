@@ -43,9 +43,8 @@
 
   $: if (!loading && selectedDate) loadLogs(selectedDate)
 
-  function isTaken(med: Medication) {
-    return logs.some(l => l.medication_id === med.id && !l.skipped)
-  }
+  $: takenMedIds = new Set(logs.filter(l => !l.skipped).map(l => l.medication_id))
+  function isTaken(med: Medication) { return takenMedIds.has(med.id) }
 
   const togglingMeds = new Set<string>()
 

@@ -62,19 +62,18 @@
     loading = false
   }
 
-  function filtered(status: MediaStatus) {
-    return items.filter(i => i.status === status)
+  $: countByStatus = {
+    in_progress: items.filter(i => i.status === 'in_progress').length,
+    want: items.filter(i => i.status === 'want').length,
+    done: items.filter(i => i.status === 'done').length,
   }
 
-  function filteredWithType(status: MediaStatus) {
-    let base = filtered(status)
-    if (activeType) base = base.filter(i => i.type === activeType)
-    return base
-  }
+  $: displayItems = (() => {
+    const base = items.filter(i => i.status === activeStatus)
+    return activeType ? base.filter(i => i.type === activeType) : base
+  })()
 
-  function typesInCurrentTab(): MediaType[] {
-    return ALL_TYPES.filter(t => filtered(activeStatus).some(i => i.type === t))
-  }
+  $: availableTypes = ALL_TYPES.filter(t => items.some(i => i.type === t))
 
   function openAdd(status: MediaStatus = activeStatus === 'in_progress' ? 'want' : activeStatus) {
     editItem = null
@@ -328,34 +327,32 @@
     {#each ALL_STATUSES as s}
       <button class="status-tab" class:active={activeStatus === s} on:click={() => { activeStatus = s }}>
         {statusLabel[s]}
-        {#if filtered(s).length > 0}<span class="count">{filtered(s).length}</span>{/if}
+        {#if countByStatus[s] > 0}<span class="count">{countByStatus[s]}</span>{/if}
       </button>
     {/each}
   </div>
 
-  {#if !loading && items.length > 0}
+  {#if !loading && availableTypes.length > 0}
     <div class="type-filter-row">
       <button class="filter-chip" class:active={activeType === null} on:click={() => activeType = null}>Все</button>
-      {#each ALL_TYPES as t}
-        {#if items.some(i => i.type === t)}
-          <button class="filter-chip" class:active={activeType === t} on:click={() => activeType = t}>{typeFilterLabel[t]}</button>
-        {/if}
+      {#each availableTypes as t}
+        <button class="filter-chip" class:active={activeType === t} on:click={() => activeType = t}>{typeFilterLabel[t]}</button>
       {/each}
     </div>
   {/if}
 
   {#if loading}
     <div class="skeleton mt-4" style="height:10rem" />
-  {:else if filteredWithType(activeStatus).length === 0}
+  {:else if displayItems.length === 0}
     <div class="empty-state mt-4">
       {activeStatus === 'want' ? 'Ничего не запланировано' : activeStatus === 'in_progress' ? 'Ничего в процессе' : 'Ещё ничего не закончено'}
     </div>
   {:else}
     <div class="item-list mt-3">
-      {#each filteredWithType(activeStatus) as item (item.id)}
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <div class="item-card" class:moving={movingItemId === item.id} on:click={() => openEdit(item)}>
-          <div class="item-top">
+      {#each displayItems as item (item.id)}
+        <div class="item-card" class:moving={movingItemId === item.id}>
+          <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+          <div class="item-top" on:click={() => openEdit(item)}>
             <div class="item-info">
               <div class="item-badges">
                 <span class="item-type-badge">{typeLabel[item.type]}</span>
@@ -364,7 +361,6 @@
               <span class="item-title">{item.title}</span>
               {#if item.genre}<span class="item-genre">{item.genre}</span>{/if}
             </div>
-            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <button class="del-btn" on:click|stopPropagation={() => deleteItem(item.id)}>×</button>
           </div>
 
@@ -446,10 +442,21 @@
                   <div class="eps-list">
                     {#each { length: epsInSeason } as _, ei}
                       {@const epNum = ei + 1}
-                      {@const state = getEpisodeState(item, seasonIdx, epNum)}
-                      <button class="ep-row ep-{state}" on:click={() => setCurrentEpisode(item, seasonIdx, epNum)}>
+                      {@const st = getEpisodeState(item, seasonIdx, epNum)}
+                      <button
+                        class="ep-row"
+                        class:ep-watched={st === 'watched'}
+                        class:ep-current={st === 'current'}
+                        class:ep-remaining={st === 'remaining'}
+                        on:click={() => setCurrentEpisode(item, seasonIdx, epNum)}
+                      >
                         <span class="ep-label">Серия {epNum}</span>
-                        <span class="ep-toggle ep-toggle-{state}"></span>
+                        <span
+                          class="ep-toggle"
+                          class:ep-toggle-watched={st === 'watched'}
+                          class:ep-toggle-current={st === 'current'}
+                          class:ep-toggle-remaining={st === 'remaining'}
+                        ></span>
                       </button>
                     {/each}
                   </div>
@@ -658,7 +665,7 @@
   .item-card:active { opacity: 0.8; }
   .item-card.moving { opacity: 0; transform: translateX(30px); pointer-events: none; }
 
-  .item-top { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.25rem; }
+  .item-top { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.25rem; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .item-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .item-badges { display: flex; align-items: center; gap: 0.375rem; }
   .item-type-badge { font-size: 0.6875rem; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.05em; }

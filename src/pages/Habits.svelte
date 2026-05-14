@@ -110,13 +110,11 @@
     selectedDate = date
   }
 
-  function isDone(habit: Habit) {
-    return logs.some(l => l.habit_id === habit.id)
-  }
+  $: doneHabitIds = new Set(logs.map(l => l.habit_id))
+  $: loggedSet = new Set(allLogs.map(l => `${l.habit_id}:${l.date}`))
 
-  function hasLog(habit: Habit, date: string) {
-    return allLogs.some(l => l.habit_id === habit.id && l.date === date)
-  }
+  function isDone(habit: Habit) { return doneHabitIds.has(habit.id) }
+  function hasLog(habit: Habit, date: string) { return loggedSet.has(`${habit.id}:${date}`) }
 
   const togglingHabits = new Set<string>()
 
@@ -189,7 +187,8 @@
     habits = habits.filter(h => h.id !== habit.id)
   }
 
-  function doneCount() { return logs.length }
+  $: completedCount = logs.length
+  function doneCount() { return completedCount }
 
   onMount(load)
 </script>
