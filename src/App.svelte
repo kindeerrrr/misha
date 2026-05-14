@@ -12,6 +12,7 @@
   import Media from './pages/Media.svelte'
   import Cat from './pages/Cat.svelte'
   import Settings from './pages/Settings.svelte'
+  import Hub from './pages/Hub.svelte'
 </script>
 
 {#if $authLoading}
@@ -39,6 +40,8 @@
       <Cat />
     {:else if $activeTab === 'settings'}
       <Settings />
+    {:else if $activeTab === 'hub'}
+      <Hub />
     {/if}
   </div>
   <BottomNav />

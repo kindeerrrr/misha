@@ -4,12 +4,13 @@
   import { user } from '../stores/user'
   import { navigate } from '../stores/nav'
   import DateNav from '../components/ui/DateNav.svelte'
-  import type { Medication, MedicationLog, SleepLog, EmotionEntry } from '../lib/types'
+  import type { Medication, MedicationLog, SleepLog, EmotionEntry, DayReport } from '../lib/types'
 
   let medications: Medication[] = []
   let pillLogs: MedicationLog[] = []
   let sleepLog: SleepLog | null = null
   let emotions: EmotionEntry[] = []
+  let dayReport: DayReport | null = null
   let weekExpenses = 0
   let loading = true
 
@@ -28,14 +29,16 @@
   async function loadDayData(date: string) {
     if (!$user) return
     const uid = $user.id
-    const [logsRes, sleepRes, emotRes] = await Promise.all([
+    const [logsRes, sleepRes, emotRes, drRes] = await Promise.all([
       supabase.from('medication_logs').select('*').eq('user_id', uid).eq('date', date),
       supabase.from('sleep_logs').select('*').eq('user_id', uid).eq('date', date).maybeSingle(),
       supabase.from('emotion_entries').select('*').eq('user_id', uid).eq('date', date).order('recorded_at', { ascending: false }),
+      supabase.from('day_reports').select('*').eq('user_id', uid).eq('date', date).maybeSingle(),
     ])
     pillLogs = logsRes.data ?? []
     sleepLog = sleepRes.data
     emotions = emotRes.data ?? []
+    dayReport = drRes.data
   }
 
   async function load() {
@@ -161,15 +164,23 @@
       <div class="card tap-target" on:click={() => navigate('emotions')}>
         <div class="card-header">
           <span class="card-title">Настроение</span>
+          {#if dayReport?.overall}
+            <span class="card-badge">{dayReport.overall}/5</span>
+          {/if}
         </div>
         {#if emotions.length > 0}
           <div class="emotion-strip">
-            {#each emotions.slice(0, 5) as e}
-              <span class="emotion-chip">{e.emoji}</span>
+            {#each emotions as e}
+              <span class="emotion-chip" title={e.note ?? ''}>{e.emoji}</span>
             {/each}
           </div>
         {:else}
           <p class="empty-hint">Отметь настроение →</p>
+        {/if}
+        {#if dayReport?.highlight}
+          <p class="day-highlight">✦ {dayReport.highlight}</p>
+        {:else if emotions.length > 0 && !dayReport}
+          <p class="empty-hint" style="margin-top:0.5rem">Заполни итог дня вечером →</p>
         {/if}
       </div>
     </section>
@@ -327,6 +338,13 @@
   }
 
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  .day-highlight {
+    font-size: 0.875rem;
+    color: var(--color-muted);
+    margin: 0.5rem 0 0;
+    font-style: italic;
+  }
 
   .tap-target { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: opacity 0.15s; }
   .tap-target:active { opacity: 0.8; }
