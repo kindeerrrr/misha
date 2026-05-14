@@ -47,6 +47,7 @@
   const todayDate = today()
   const RU_MONTHS_SHORT = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек']
   const RU_MONTHS_FULL  = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
+  const CREDIT_COLORS = ['#4f8ef7','#f7994f','#52c97a','#f76f6f','#a78bfa','#fb923c','#38bdf8','#f472b6']
 
   function fmtNum(n: number): string {
     return Math.round(n).toLocaleString('ru-RU')
@@ -280,6 +281,66 @@
     if (!db) return -1
     return da.localeCompare(db)
   })
+
+  // ── Chart ──────────────────────────────────────────────────────────────────
+  const BAR_W = 36, BAR_GAP = 6, CHART_H = 96
+
+  $: chartData = (() => {
+    if (credits.length === 0) return null
+    const monthMap = new Map<string, Map<string, number>>()
+
+    // Simple credits: project future payments from today to end_date
+    for (const c of credits) {
+      if (c.is_complex || !c.monthly_payment || !c.payment_day) continue
+      const now = new Date()
+      const day = c.payment_day
+      let d = new Date(now.getFullYear(), now.getMonth(), day)
+      if (d.getTime() < now.setHours(0, 0, 0, 0)) d = new Date(d.getFullYear(), d.getMonth() + 1, day)
+      const end = c.end_date ? new Date(c.end_date + 'T12:00:00') : null
+      let count = 0
+      while ((!end || d <= end) && count < 48) {
+        const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        if (!monthMap.has(k)) monthMap.set(k, new Map())
+        monthMap.get(k)!.set(c.id, (monthMap.get(k)!.get(c.id) ?? 0) + c.monthly_payment!)
+        d = new Date(d.getFullYear(), d.getMonth() + 1, day)
+        count++
+      }
+    }
+
+    // Complex credits: use actual unpaid scheduled payments
+    for (const p of payments) {
+      if (p.paid) continue
+      const k = p.date.slice(0, 7)
+      if (!monthMap.has(k)) monthMap.set(k, new Map())
+      monthMap.get(k)!.set(p.credit_id, (monthMap.get(k)!.get(p.credit_id) ?? 0) + p.amount)
+    }
+
+    if (monthMap.size === 0) return null
+
+    const sorted = Array.from(monthMap.entries()).sort(([a], [b]) => a.localeCompare(b))
+    const maxTotal = Math.max(1, ...sorted.map(([, m]) => Array.from(m.values()).reduce((s, v) => s + v, 0)))
+    const creditIdx = new Map(credits.map((c, i) => [c.id, i]))
+
+    const bars = sorted.map(([key, segMap], i) => {
+      const total = Array.from(segMap.values()).reduce((s, v) => s + v, 0)
+      let yOff = CHART_H
+      const segments = Array.from(segMap.entries()).map(([cid, amount]) => {
+        const h = Math.max(2, (amount / maxTotal) * CHART_H)
+        yOff -= h
+        return { cid, amount, x: i * (BAR_W + BAR_GAP), y: yOff, w: BAR_W, h, color: CREDIT_COLORS[(creditIdx.get(cid) ?? 0) % CREDIT_COLORS.length] }
+      })
+      const mi = parseInt(key.slice(5, 7)) - 1
+      const prevKey = i > 0 ? sorted[i - 1][0] : null
+      return {
+        key, segments, total,
+        x: i * (BAR_W + BAR_GAP),
+        label: RU_MONTHS_SHORT[mi],
+        year: (!prevKey || prevKey.slice(0, 4) !== key.slice(0, 4)) ? `'${key.slice(2, 4)}` : '',
+      }
+    })
+
+    return { bars, maxTotal, totalW: sorted.length * (BAR_W + BAR_GAP) }
+  })()
 
   // ── Load ───────────────────────────────────────────────────────────────────
   async function load() {
@@ -694,6 +755,37 @@
           {/if}
         </div>
       </div>
+
+      {#if chartData && chartData.bars.length > 1}
+        <div class="chart-card">
+          <p class="chart-title">Нагрузка по месяцам</p>
+          <div class="chart-legend">
+            {#each credits as c, i}
+              <div class="legend-item">
+                <span class="legend-dot" style="background:{CREDIT_COLORS[i % CREDIT_COLORS.length]}"></span>
+                <span class="legend-name">{c.name}</span>
+              </div>
+            {/each}
+          </div>
+          <div class="chart-scroll">
+            <svg width={chartData.totalW} height={CHART_H + 30} style="display:block;overflow:visible">
+              {#each chartData.bars as bar}
+                {#each bar.segments as seg}
+                  <rect x={seg.x} y={seg.y} width={seg.w} height={seg.h} fill={seg.color} rx="2" opacity="0.85" />
+                {/each}
+                <text x={bar.x + BAR_W / 2} y={CHART_H + 13} text-anchor="middle" class="chart-lbl">{bar.label}</text>
+                {#if bar.year}
+                  <text x={bar.x + BAR_W / 2} y={CHART_H + 24} text-anchor="middle" class="chart-yr">{bar.year}</text>
+                {/if}
+                <!-- amount on top of bar -->
+                {#if bar.total >= chartData.maxTotal * 0.9 && bar.segments.length > 0}
+                  <text x={bar.x + BAR_W / 2} y={bar.segments[0].y - 3} text-anchor="middle" class="chart-yr">{fmtNum(bar.total / 1000)}к</text>
+                {/if}
+              {/each}
+            </svg>
+          </div>
+        </div>
+      {/if}
 
       <div class="credit-list">
         {#each sortedCredits as credit}
@@ -1515,6 +1607,34 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
   }
   .toggle-btn.on .toggle-knob { transform: translateX(1.25rem); }
+
+  /* ── Chart ── */
+  .chart-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 1.25rem;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+  }
+  .chart-title {
+    font-size: 0.75rem; color: var(--color-muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.5rem;
+  }
+  .chart-legend {
+    display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin-bottom: 0.75rem;
+  }
+  .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+  .legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .legend-name { font-size: 0.75rem; color: var(--color-muted); }
+  .chart-scroll {
+    overflow-x: auto; overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; padding-bottom: 0.25rem;
+  }
+  .chart-scroll::-webkit-scrollbar { display: none; }
+  :global(.chart-lbl) { font-size: 9px; fill: var(--color-muted); font-family: inherit; }
+  :global(.chart-yr)  { font-size: 8px; fill: var(--color-muted); font-family: inherit; opacity: 0.6; }
 
   /* ── Sort chips ── */
   .sort-row {
