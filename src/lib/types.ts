@@ -218,6 +218,7 @@ export interface CatProfile {
   notes: string | null
   animal_type: string | null
   photo_url: string | null
+  coat_color: string | null
 }
 
 export interface CatVaccine {

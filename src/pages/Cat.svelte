@@ -13,6 +13,40 @@
     profile: 'Профиль', vaccines: 'Прививки', health: 'Здоровье', grooming: 'Уход', food: 'Корм'
   }
   const GROOM_TYPES = ['Грумер', 'Стрижка когтей', 'Чистка ушей', 'Купание']
+
+  const CAT_BREEDS = [
+    'Британская короткошёрстная', 'Шотландская вислоухая', 'Мейн-кун', 'Сибирская',
+    'Бенгальская', 'Регдолл', 'Персидская', 'Русская голубая', 'Сфинкс',
+    'Норвежская лесная', 'Абиссинская', 'Бурманская', 'Ориентальная',
+    'Экзотическая короткошёрстная', 'Турецкая ангора', 'Корниш-рекс', 'Девон-рекс',
+    'Манчкин', 'Тайская', 'Другая',
+  ]
+  const DOG_BREEDS = [
+    'Лабрадор', 'Немецкая овчарка', 'Золотистый ретривер', 'Французский бульдог',
+    'Хаски', 'Корги', 'Шпиц', 'Йоркширский терьер', 'Мопс', 'Чихуахуа',
+    'Бигль', 'Такса', 'Пудель', 'Бордер-колли', 'Самоед',
+    'Джек-рассел-терьер', 'Доберман', 'Ротвейлер', 'Боксёр', 'Другая',
+  ]
+  const CAT_COLORS = [
+    'Чёрный', 'Белый', 'Серый', 'Рыжий', 'Кремовый',
+    'Голубой', 'Трёхцветный', 'Черепаховый', 'Табби', 'Биколор', 'Колор-пойнт',
+  ]
+  const DOG_COLORS = [
+    'Чёрный', 'Белый', 'Рыжий', 'Коричневый', 'Палевый',
+    'Серый', 'Чёрно-белый', 'Рыже-белый', 'Чёрно-подпалый', 'Пятнистый',
+  ]
+
+  function breedsFor(type: string) {
+    if (type === 'dog') return DOG_BREEDS
+    if (type === 'cat') return CAT_BREEDS
+    return []
+  }
+  function colorsFor(type: string) {
+    if (type === 'dog') return DOG_COLORS
+    if (type === 'cat') return CAT_COLORS
+    return []
+  }
+
   const ANIMAL_TYPES = [
     { id: 'cat',     label: 'Кошка',   emoji: '🐱' },
     { id: 'dog',     label: 'Собака',  emoji: '🐶' },
@@ -36,8 +70,8 @@
 
   // Profile form
   let pName = ''; let pBreed = ''; let pBirth = ''; let pWeight = ''; let pNotes = ''
-  let pAnimalType = 'cat'; let pPhotoUrl = ''
-  let savingProfile = false; let uploadingPhoto = false
+  let pAnimalType = 'cat'; let pPhotoUrl = ''; let pCoatColor = ''
+  let savingProfile = false; let uploadingPhoto = false; let saveError = ''
 
   // Vaccine form
   let showVaccModal = false; let editingVacc: CatVaccine | null = null
@@ -85,7 +119,8 @@
     pName = p.name; pBreed = p.breed ?? ''; pBirth = p.birth_date ?? ''
     pWeight = p.weight_kg?.toString() ?? ''; pNotes = p.notes ?? ''
     pAnimalType = p.animal_type ?? 'cat'; pPhotoUrl = p.photo_url ?? ''
-    isNewPet = false
+    pCoatColor = p.coat_color ?? ''
+    isNewPet = false; saveError = ''
   }
 
   async function openPet(p: CatProfile) {
@@ -99,8 +134,8 @@
   function startNewPet() {
     selectedProfile = null
     pName = ''; pBreed = ''; pBirth = ''; pWeight = ''; pNotes = ''
-    pAnimalType = 'cat'; pPhotoUrl = ''
-    isNewPet = true
+    pAnimalType = 'cat'; pPhotoUrl = ''; pCoatColor = ''
+    saveError = ''; isNewPet = true
     vaccines = []; healthEvents = []; groomings = []; foodOrders = []
     activeTab = 'profile'
     view = 'pet'
@@ -147,7 +182,7 @@
 
   async function saveProfile() {
     if (!$user || !pName.trim()) return
-    savingProfile = true
+    savingProfile = true; saveError = ''
     const payload = {
       user_id: $user.id,
       name: pName.trim(),
@@ -157,20 +192,16 @@
       notes: pNotes || null,
       animal_type: pAnimalType,
       photo_url: pPhotoUrl || null,
+      coat_color: pCoatColor || null,
     }
     if (selectedProfile) {
-      const { data } = await supabase.from('cat_profiles').update(payload).eq('id', selectedProfile.id).select().single()
-      if (data) {
-        selectedProfile = data
-        profiles = profiles.map(p => p.id === data.id ? data : p)
-      }
+      const { data, error } = await supabase.from('cat_profiles').update(payload).eq('id', selectedProfile.id).select().single()
+      if (error) { saveError = error.message }
+      else if (data) { selectedProfile = data; profiles = profiles.map(p => p.id === data.id ? data : p) }
     } else {
-      const { data } = await supabase.from('cat_profiles').insert(payload).select().single()
-      if (data) {
-        profiles = [...profiles, data]
-        selectedProfile = data
-        isNewPet = false
-      }
+      const { data, error } = await supabase.from('cat_profiles').insert(payload).select().single()
+      if (error) { saveError = error.message }
+      else if (data) { profiles = [...profiles, data]; selectedProfile = data; isNewPet = false }
     }
     savingProfile = false
   }
@@ -316,6 +347,7 @@
             <div class="pet-card-info">
               <span class="pet-card-name">{p.name}</span>
               {#if p.breed}<span class="pet-card-sub">{p.breed}</span>{/if}
+              {#if p.coat_color}<span class="pet-card-sub">{p.coat_color}</span>{/if}
               {#if petAge(p.birth_date)}<span class="pet-card-age">{petAge(p.birth_date)}</span>{/if}
             </div>
           </div>
@@ -383,10 +415,40 @@
           <label class="label" for="p-name">Имя</label>
           <input id="p-name" type="text" bind:value={pName} placeholder="Имя питомца" />
         </div>
-        <div class="form-field">
-          <label class="label" for="p-breed">Порода</label>
-          <input id="p-breed" type="text" bind:value={pBreed} placeholder="Необязательно" />
-        </div>
+        {#if breedsFor(pAnimalType).length > 0}
+          <div class="form-field">
+            <label class="label">Порода</label>
+            <div class="chip-grid">
+              {#each breedsFor(pAnimalType) as b}
+                <button
+                  class="chip"
+                  class:selected={pBreed === b}
+                  on:click={() => pBreed = pBreed === b ? '' : b}
+                >{b}</button>
+              {/each}
+            </div>
+          </div>
+        {:else}
+          <div class="form-field">
+            <label class="label" for="p-breed">Порода</label>
+            <input id="p-breed" type="text" bind:value={pBreed} placeholder="Необязательно" />
+          </div>
+        {/if}
+
+        {#if colorsFor(pAnimalType).length > 0}
+          <div class="form-field">
+            <label class="label">Окрас</label>
+            <div class="chip-grid">
+              {#each colorsFor(pAnimalType) as c}
+                <button
+                  class="chip"
+                  class:selected={pCoatColor === c}
+                  on:click={() => pCoatColor = pCoatColor === c ? '' : c}
+                >{c}</button>
+              {/each}
+            </div>
+          </div>
+        {/if}
         <div class="form-field">
           <label class="label" for="p-birth">Дата рождения</label>
           <input id="p-birth" type="date" bind:value={pBirth} />
@@ -399,6 +461,9 @@
           <label class="label" for="p-notes">Заметки</label>
           <textarea id="p-notes" bind:value={pNotes} rows="3" placeholder="Особенности, диета..." />
         </div>
+        {#if saveError}
+          <p class="save-error">{saveError}</p>
+        {/if}
         <button class="btn-primary mt-2" on:click={saveProfile} disabled={savingProfile || !pName.trim()}>
           {savingProfile ? 'Сохраняю...' : selectedProfile ? 'Обновить' : 'Создать профиль'}
         </button>
@@ -769,6 +834,28 @@
   .animal-emoji { font-size: 1.25rem; line-height: 1; }
   .animal-label { font-size: 0.6875rem; color: var(--color-muted); white-space: nowrap; }
   .animal-type-btn.selected .animal-label { color: rgba(255,255,255,0.85); }
+
+  /* Chip grid for breed/color */
+  .chip-grid {
+    display: flex; flex-wrap: wrap; gap: 0.375rem;
+  }
+  .chip {
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--color-border); border-radius: 2rem;
+    background: var(--color-card); font-size: 0.8125rem;
+    color: var(--color-muted); cursor: pointer;
+    -webkit-tap-highlight-color: transparent; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .chip.selected {
+    background: var(--color-accent); border-color: var(--color-accent); color: white;
+  }
+
+  .save-error {
+    font-size: 0.8125rem; color: #ef4444;
+    background: rgba(239,68,68,0.08); border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem; margin: 0;
+  }
 
   /* Profile form */
   .profile-form { display: flex; flex-direction: column; gap: 1rem; }
