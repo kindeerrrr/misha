@@ -371,6 +371,7 @@ export interface Credit {
   payment_day: number | null
   start_date: string
   end_date: string | null
+  is_complex: boolean
   notes: string | null
   created_at: string
 }
