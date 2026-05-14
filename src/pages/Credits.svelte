@@ -448,6 +448,69 @@
     payments = payments.filter(x => x.id !== p.id)
   }
 
+  // ── Bulk schedule (for complex credits) ───────────────────────────────────
+  let showBulkModal = false
+  let fBulkStartDate = todayDate
+  let fBulkAmount = ''
+  let fBulkAmountDisplay = ''
+  let fBulkCount = ''
+  let fBulkInterval: 'month' | 'week' | 'day' = 'month'
+  let fBulkPaid = false
+  let bulkSaving = false
+
+  $: bulkAmount = parseNum(fBulkAmountDisplay || fBulkAmount)
+  $: bulkCount = parseInt(fBulkCount) || 0
+
+  $: bulkPreviewDates = (() => {
+    if (!fBulkStartDate || bulkCount <= 0 || bulkAmount <= 0) return []
+    const dates: string[] = []
+    let d = new Date(fBulkStartDate + 'T12:00:00')
+    for (let i = 0; i < Math.min(bulkCount, 36); i++) {
+      dates.push(localDateStr(d))
+      if (fBulkInterval === 'month') d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate())
+      else if (fBulkInterval === 'week') d = new Date(d.getTime() + 7 * 86400000)
+      else d = new Date(d.getTime() + 86400000)
+    }
+    return dates
+  })()
+
+  function openBulkSchedule() {
+    fBulkStartDate = todayDate
+    fBulkAmount = activeCredit?.monthly_payment ? String(activeCredit.monthly_payment) : ''
+    fBulkAmountDisplay = activeCredit?.monthly_payment ? fmtNum(activeCredit.monthly_payment) : ''
+    fBulkCount = ''
+    fBulkInterval = 'month'
+    fBulkPaid = false
+    showBulkModal = true
+  }
+
+  async function saveBulkSchedule() {
+    if (!activeCredit || bulkPreviewDates.length === 0 || bulkAmount <= 0) return
+    bulkSaving = true
+    const rows = bulkPreviewDates.map(date => ({
+      user_id: $user!.id,
+      credit_id: activeCredit!.id,
+      date,
+      amount: bulkAmount,
+      paid: fBulkPaid,
+      notes: null,
+    }))
+    const { data } = await supabase.from('credit_payments').insert(rows).select()
+    if (data) payments = [...data, ...payments]
+
+    if (fBulkPaid) {
+      const totalPaid = bulkAmount * bulkPreviewDates.length
+      const newRemaining = Math.max(0, activeCredit.remaining - totalPaid)
+      const { data: updated } = await supabase.from('credits')
+        .update({ remaining: newRemaining }).eq('id', activeCredit.id).select().single()
+      if (updated) { credits = credits.map(c => c.id === updated.id ? updated : c); activeCredit = updated }
+    }
+
+    bulkSaving = false
+    showBulkModal = false
+    showToast(`${bulkPreviewDates.length} платежей добавлено`, 'success')
+  }
+
   onMount(load)
 </script>
 
@@ -684,9 +747,15 @@
     <!-- History -->
     <div class="section-row">
       <p class="section-label">История</p>
-      <button class="add-pay-btn" on:click={openAddPayment}>
-        {activeCredit.is_complex ? '+ Добавить' : '+ Внести платёж'}
-      </button>
+      <div class="section-actions">
+        {#if activeCredit.is_complex}
+          <button class="add-pay-btn" on:click={openBulkSchedule}>+ Расписание</button>
+          <span class="section-divider">·</span>
+        {/if}
+        <button class="add-pay-btn" on:click={openAddPayment}>
+          {activeCredit.is_complex ? '+ Один платёж' : '+ Внести платёж'}
+        </button>
+      </div>
     </div>
 
     {#if historyByMonth.length === 0}
@@ -849,6 +918,72 @@
   <div class="form-actions">
     <button class="btn-primary" on:click={savePayment}>
       {fPayPaid ? 'Записать' : 'Запланировать'}
+    </button>
+  </div>
+</Modal>
+
+<Modal title="Создать расписание" open={showBulkModal} on:close={() => showBulkModal = false}>
+  <div class="form-row">
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Сумма платежа *</label>
+      <input
+        class="form-input"
+        type="text"
+        inputmode="numeric"
+        bind:value={fBulkAmountDisplay}
+        on:blur={() => { fBulkAmount = fBulkAmountDisplay.replace(/\s/g,''); fBulkAmountDisplay = fBulkAmount ? formatInput(fBulkAmount) : '' }}
+        placeholder="6 836"
+      />
+    </div>
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Количество *</label>
+      <input class="form-input" type="number" min="1" max="36" bind:value={fBulkCount} placeholder="20" />
+    </div>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Первая дата</label>
+      <input class="form-input" type="date" bind:value={fBulkStartDate} />
+    </div>
+    <div class="form-group" style="flex:1">
+      <label class="form-label">Интервал</label>
+      <div class="mode-toggle">
+        <button class="mode-btn" class:active={fBulkInterval === 'month'} on:click={() => fBulkInterval = 'month'}>Мес</button>
+        <button class="mode-btn" class:active={fBulkInterval === 'week'}  on:click={() => fBulkInterval = 'week'}>Нед</button>
+        <button class="mode-btn" class:active={fBulkInterval === 'day'}   on:click={() => fBulkInterval = 'day'}>День</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <div class="toggle-row">
+      <div class="toggle-text">
+        <span class="toggle-label">Все уже оплачены</span>
+        <span class="toggle-sub">Для занесения прошлых платежей</span>
+      </div>
+      <button class="toggle-btn" class:on={fBulkPaid} on:click={() => fBulkPaid = !fBulkPaid} role="switch" aria-checked={fBulkPaid}>
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+  </div>
+
+  {#if bulkPreviewDates.length > 0}
+    <div class="bulk-preview">
+      <div class="bulk-preview-header">
+        <span class="bulk-preview-title">{bulkPreviewDates.length} платежей · {fmtNum(bulkAmount * bulkPreviewDates.length)} ₽ итого</span>
+      </div>
+      <div class="bulk-dates">
+        {#each bulkPreviewDates as d, i}
+          <span class="bulk-date-chip" class:paid={fBulkPaid}>{fmt(d)}</span>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  <div class="form-actions">
+    <button class="btn-primary" on:click={saveBulkSchedule} disabled={bulkSaving || bulkPreviewDates.length === 0}>
+      {bulkSaving ? 'Создаю…' : `Создать ${bulkPreviewDates.length > 0 ? bulkPreviewDates.length + ' платежей' : ''}`}
     </button>
   </div>
 </Modal>
@@ -1073,6 +1208,9 @@
   .section-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
   .section-label { flex: 1; font-size: 0.75rem; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
 
+  .section-actions { display: flex; align-items: center; gap: 0.375rem; }
+  .section-divider { color: var(--color-border); font-size: 0.875rem; }
+
   .add-pay-btn {
     background: none; border: none; cursor: pointer;
     font-size: 0.875rem; color: var(--color-accent);
@@ -1208,6 +1346,24 @@
     cursor: pointer; font-family: inherit; -webkit-tap-highlight-color: transparent;
   }
   .btn-danger:active { opacity: 0.7; }
+
+  /* ── Bulk schedule preview ── */
+  .bulk-preview {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 0.875rem;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .bulk-preview-header { margin-bottom: 0.5rem; }
+  .bulk-preview-title { font-size: 0.875rem; color: var(--color-text); font-weight: 500; }
+  .bulk-dates { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .bulk-date-chip {
+    font-size: 0.75rem; color: var(--color-muted);
+    background: var(--color-card); border: 1px solid var(--color-border);
+    border-radius: 0.5rem; padding: 0.1875rem 0.5rem;
+  }
+  .bulk-date-chip.paid { color: #43a047; border-color: #43a04730; background: #43a04710; }
 
   /* ── Early repayment ── */
   .early-btn {
