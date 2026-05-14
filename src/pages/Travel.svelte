@@ -94,6 +94,14 @@
 
   const TRIP_EMOJIS = ['✈️','🌍','🏔️','🏖️','🗺️','🏛️','🌆','🚂','🚢','🧳']
 
+  const DOC_CATEGORIES = [
+    { id: 'doc',       label: 'Документы'   },
+    { id: 'booking',   label: 'Бронирование' },
+    { id: 'ticket',    label: 'Билеты'       },
+    { id: 'insurance', label: 'Страховка'    },
+    { id: 'museum',    label: 'Музеи'        },
+  ]
+
   function fmt(d: string | null | undefined): string {
     if (!d) return ''
     const parts = d.split('-')
@@ -207,6 +215,7 @@
 
   // ── Filter state ──────────────────────────────────────────────────────────
   let spotFilter: SpotCategory | null = null
+  let docFilter: string | null = null
 
   // ── Doc upload ────────────────────────────────────────────────────────────
   let uploading = false
@@ -219,8 +228,13 @@
   $: tripBags = bags.filter(b => b.trip_id === activeTrip?.id)
   $: tripItems = packItems.filter(i => i.trip_id === activeTrip?.id)
   $: tripDocs = documents.filter(d => d.trip_id === activeTrip?.id)
-  $: photoDocs = tripDocs.filter(d => d.file_type === 'photo')
-  $: pdfDocs   = tripDocs.filter(d => d.file_type === 'pdf')
+  $: visibleDocs = docFilter ? tripDocs.filter(d => d.category === docFilter) : tripDocs
+  $: photoDocs = visibleDocs.filter(d => d.file_type === 'photo')
+  $: pdfDocs   = visibleDocs.filter(d => d.file_type === 'pdf')
+  $: docsByCategory = DOC_CATEGORIES.map(c => ({
+    ...c,
+    count: tripDocs.filter(d => d.category === c.id).length,
+  }))
 
   // Reactive bag/item grouping — avoids calling functions inside {#each} that won't re-trigger
   $: looseItems = tripItems.filter(i => i.bag_id === null).sort((a, b) => a.sort_order - b.sort_order)
@@ -440,7 +454,8 @@
     if (url) {
       const fileType: 'photo' | 'pdf' = file.type.startsWith('image/') ? 'photo' : 'pdf'
       const { data } = await supabase.from('trip_documents').insert({
-        user_id: $user!.id, trip_id: activeTrip.id, name: file.name, file_url: url, file_type: fileType,
+        user_id: $user!.id, trip_id: activeTrip.id, name: file.name, file_url: url,
+        file_type: fileType, category: docFilter ?? 'doc',
       }).select().single()
       if (data) documents = [...documents, data]
       showToast('Файл загружен', 'success')
@@ -627,9 +642,24 @@
 
     <!-- ── DOCS tab ── -->
     {:else if tripTab === 'docs'}
+      <div class="cat-filter-row">
+        <button class="filter-chip" class:active={docFilter === null} on:click={() => docFilter = null}>Все</button>
+        {#each docsByCategory as cat}
+          {#if cat.count > 0 || docFilter === cat.id}
+            <button class="filter-chip" class:active={docFilter === cat.id} on:click={() => docFilter = cat.id}>
+              {cat.label}{cat.count > 0 ? ` · ${cat.count}` : ''}
+            </button>
+          {/if}
+        {/each}
+      </div>
+
       {#if photoDocs.length === 0 && pdfDocs.length === 0}
         <div class="empty-state small">
-          <p class="empty-sub">Нет документов — загрузи фото или PDF</p>
+          {#if docFilter}
+            <p class="empty-sub">Нет файлов в этой категории — загрузи что-нибудь</p>
+          {:else}
+            <p class="empty-sub">Нет документов — выбери категорию и загрузи файл</p>
+          {/if}
         </div>
       {/if}
 
@@ -647,7 +677,7 @@
       {/if}
 
       {#if pdfDocs.length > 0}
-        <p class="section-sub-label">Документы</p>
+        <p class="section-sub-label">PDF и файлы</p>
         <div class="pdf-list">
           {#each pdfDocs as doc}
             <div class="pdf-card">
@@ -657,6 +687,12 @@
             </div>
           {/each}
         </div>
+      {/if}
+
+      {#if docFilter}
+        <p class="upload-hint">Файл загрузится в «{DOC_CATEGORIES.find(c => c.id === docFilter)?.label}»</p>
+      {:else}
+        <p class="upload-hint">Выбери категорию выше, чтобы загрузить в нужный раздел</p>
       {/if}
     {/if}
   </div>
@@ -1190,6 +1226,13 @@
   .empty-sub { font-size: 0.875rem; color: var(--color-muted); margin: 0; text-align: center; }
 
   .muted-hint { color: var(--color-muted); font-size: 0.875rem; text-align: center; margin-top: 2rem; }
+
+  .upload-hint {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--color-muted);
+    margin: 1rem 0 0.5rem;
+  }
 
   /* ── FAB ── */
   .fab {

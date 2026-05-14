@@ -354,6 +354,7 @@ export interface TripDocument {
   name: string
   file_url: string
   file_type: 'photo' | 'pdf'
+  category: string                 // doc | booking | ticket | insurance | museum
   created_at: string
 }
 
