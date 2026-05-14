@@ -113,6 +113,9 @@
     if (!$user) return
     const res = await supabase.from('cat_profiles').select('*').eq('user_id', $user.id).order('created_at')
     profiles = res.data ?? []
+    if (profiles.length === 1) {
+      await openPet(profiles[0])
+    }
     loading = false
   }
 
