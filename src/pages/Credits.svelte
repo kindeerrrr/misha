@@ -184,8 +184,13 @@
   let loading = true
 
   // ── Payments tab ───────────────────────────────────────────────────────────
-  type PayFilter = 'week' | 'month' | 'all'
-  let payFilter: PayFilter = 'week'
+  let selectedMonth = today().slice(0, 7) // 'YYYY-MM'
+
+  function navigateMonth(delta: number) {
+    const [y, m] = selectedMonth.split('-').map(Number)
+    const d = new Date(y, m - 1 + delta, 1)
+    selectedMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
 
   type FlatPayment = { creditId: string; creditName: string; colorIdx: number; date: string; amount: number; paid: boolean; paymentId: string | null }
 
@@ -220,14 +225,8 @@
     return result.sort((a, b) => a.date.localeCompare(b.date))
   })()
 
-  $: filteredPayments = (() => {
-    const now = new Date(); now.setHours(0, 0, 0, 0)
-    if (payFilter === 'all') return allUpcomingFlat
-    let cutoff: Date
-    if (payFilter === 'week') { cutoff = new Date(now); cutoff.setDate(cutoff.getDate() + 7) }
-    else { cutoff = new Date(now.getFullYear(), now.getMonth() + 1, 0) } // last day of current month
-    return allUpcomingFlat.filter(p => new Date(p.date + 'T12:00:00') <= cutoff)
-  })()
+  $: monthPayments = allUpcomingFlat.filter(p => p.date.slice(0, 7) === selectedMonth)
+  $: monthPaymentsTotal = monthPayments.reduce((s, p) => s + p.amount, 0)
 
   // ── Data ───────────────────────────────────────────────────────────────────
   let credits: Credit[] = []
@@ -448,6 +447,62 @@
       return { credit: c, monthly, monthsLeft, pct, forecast: closureForecast(c), remaining: c.remaining }
     }).sort((a, b) => b.remaining - a.remaining)
   })()
+
+  // ── Milestones: when each credit closes ────────────────────────────────────
+  $: milestones = (() => {
+    return credits.map((c, i) => {
+      let endKey: string | null = null
+      if (c.end_date && new Date(c.end_date + 'T12:00:00') >= new Date()) {
+        endKey = c.end_date.slice(0, 7)
+      } else {
+        const mp = c.is_complex
+          ? (() => {
+              const up = payments.filter(p => p.credit_id === c.id && !p.paid).sort((a,b) => a.date.localeCompare(b.date))
+              if (!up.length) return 0
+              const nm = up[0].date.slice(0,7)
+              return up.filter(p => p.date.slice(0,7) === nm).reduce((s,p) => s+p.amount, 0)
+            })()
+          : (c.monthly_payment ?? 0)
+        if (mp > 0 && c.remaining > 0) {
+          const months = Math.ceil(c.remaining / mp) - 1
+          const d = new Date(); d.setMonth(d.getMonth() + months)
+          endKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+        }
+      }
+      if (!endKey) return null
+      const monthly = c.is_complex
+        ? (() => {
+            const up = payments.filter(p => p.credit_id === c.id && !p.paid).sort((a,b) => a.date.localeCompare(b.date))
+            if (!up.length) return 0
+            const nm = up[0].date.slice(0,7)
+            return up.filter(p => p.date.slice(0,7) === nm).reduce((s,p) => s+p.amount, 0)
+          })()
+        : (c.monthly_payment ?? 0)
+      if (!monthly) return null
+      const [y, m] = endKey.split('-')
+      return { credit: c, endKey, label: `${RU_MONTHS_SHORT[parseInt(m)-1]} ${y}`, monthly, colorIdx: i }
+    }).filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => a.endKey.localeCompare(b.endKey))
+  })()
+
+  // ── Future projection ──────────────────────────────────────────────────────
+  let projectionMonths = 3
+
+  $: projectedBalances = (() => {
+    const now = new Date(); now.setHours(0,0,0,0)
+    const cutoff = new Date(now.getFullYear(), now.getMonth() + projectionMonths, now.getDate())
+    const cutoffStr = localDateStr(cutoff)
+    return credits.map((c, i) => {
+      let remaining: number
+      if (c.is_complex) {
+        remaining = payments.filter(p => p.credit_id === c.id && !p.paid && p.date > cutoffStr).reduce((s,p) => s+p.amount, 0)
+      } else {
+        remaining = Math.max(0, c.remaining - projectionMonths * (c.monthly_payment ?? 0))
+      }
+      return { credit: c, remaining, colorIdx: i }
+    })
+  })()
+  $: projectedTotal = projectedBalances.reduce((s, b) => s + b.remaining, 0)
 
   // ── Load ───────────────────────────────────────────────────────────────────
   async function load() {
@@ -927,23 +982,24 @@
 
     <!-- ══ Вкладка: Платежи ══ -->
     {:else if mainTab === 'payments'}
-      <div class="sort-row">
-        <button class="sort-chip" class:active={payFilter === 'week'}  on:click={() => payFilter = 'week'}>Неделя</button>
-        <button class="sort-chip" class:active={payFilter === 'month'} on:click={() => payFilter = 'month'}>Месяц</button>
-        <button class="sort-chip" class:active={payFilter === 'all'}   on:click={() => payFilter = 'all'}>Все</button>
+      <div class="month-nav">
+        <button class="month-nav-btn" on:click={() => navigateMonth(-1)}>‹</button>
+        <span class="month-nav-label">{monthLabel(selectedMonth)}</span>
+        <button class="month-nav-btn" on:click={() => navigateMonth(1)}>›</button>
       </div>
-      {#if filteredPayments.length === 0}
+
+      {#if monthPayments.length === 0}
         <div class="empty-state">
           <p class="empty-title">Платежей нет</p>
-          <p class="empty-sub">В выбранном периоде ничего не запланировано</p>
+          <p class="empty-sub">В этом месяце ничего не запланировано</p>
         </div>
       {:else}
-        {@const totalPeriod = filteredPayments.reduce((s, p) => s + p.amount, 0)}
-        <div class="pay-period-total">
-          Итого за период: <strong>{totalPeriod.toLocaleString('ru-RU')} ₽</strong>
+        <div class="month-total-card">
+          <span class="month-total-label">Итого за месяц</span>
+          <span class="month-total-amount">{monthPaymentsTotal.toLocaleString('ru-RU')} ₽</span>
         </div>
         <div class="pay-flat-list">
-          {#each filteredPayments as p}
+          {#each monthPayments as p}
             {@const d = daysUntil(p.date)}
             <div class="pay-flat-row" class:urgent={d !== null && d <= 3 && d >= 0} class:overdue={d !== null && d < 0}>
               <span class="pay-flat-dot" style="background:{CREDIT_COLORS[p.colorIdx % CREDIT_COLORS.length]}"></span>
@@ -951,8 +1007,8 @@
                 <span class="pay-flat-name">{p.creditName}</span>
                 <span class="pay-flat-date">
                   {fmt(p.date)}
-                  {#if d !== null}
-                    · {d < 0 ? `просрочен ${Math.abs(d)} дн.` : d === 0 ? 'сегодня' : d === 1 ? 'завтра' : `через ${d} дн.`}
+                  {#if d !== null && d >= 0 && d <= 7}
+                    · {d === 0 ? 'сегодня' : d === 1 ? 'завтра' : `через ${d} дн.`}
                   {/if}
                 </span>
               </div>
@@ -982,95 +1038,77 @@
         </div>
       {:else}
 
-        <!-- Линейный график: 1 линия = 1 кредит -->
-        {#if lineChartData}
-          <div class="chart-card">
-            <p class="chart-title">Платёж по кредиту / месяц</p>
-            <div class="chart-legend">
-              {#each lineChartData.svgLines as l}
-                <div class="legend-item">
-                  <span class="legend-dot" style="background:{CREDIT_COLORS[l.colorIdx % CREDIT_COLORS.length]}"></span>
-                  <span class="legend-name">{l.credit.name}</span>
-                </div>
-              {/each}
-            </div>
-            <div class="chart-scroll">
-              <svg width={lineChartData.totalW} height={LINE_H + 28} style="display:block;overflow:visible">
-                <!-- Grid lines -->
-                {#each [0.5, 1] as frac}
-                  {@const gy = lineChartData.PAD_TOP + (1 - frac) * (LINE_H - lineChartData.PAD_TOP - lineChartData.PAD_BOT)}
-                  <line x1="0" y1={gy} x2={lineChartData.totalW} y2={gy} stroke="var(--color-border)" stroke-width="1"/>
-                  <text x="2" y={gy - 2} class="chart-yr">{fmtNum(lineChartData.maxVal * frac / 1000)}к</text>
-                {/each}
-                <!-- Lines -->
-                {#each lineChartData.svgLines as l}
-                  {@const color = CREDIT_COLORS[l.colorIdx % CREDIT_COLORS.length]}
-                  <path d={l.pathD} stroke={color} stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
-                  <circle cx={l.lastX} cy={l.lastY} r="3.5" fill={color}/>
-                {/each}
-                <!-- Month labels -->
-                {#each lineChartData.months as month, i}
-                  {@const mi = parseInt(month.slice(5,7)) - 1}
-                  {@const prev = lineChartData.months[i - 1]}
-                  <text x={i * LINE_STEP + LINE_STEP / 2} y={LINE_H + 14} text-anchor="middle" class="chart-lbl">{RU_MONTHS_SHORT[mi]}</text>
-                  {#if !prev || prev.slice(0,4) !== month.slice(0,4)}
-                    <text x={i * LINE_STEP + LINE_STEP / 2} y={LINE_H + 24} text-anchor="middle" class="chart-yr">'{month.slice(2,4)}</text>
-                  {/if}
-                {/each}
-              </svg>
-            </div>
-          </div>
-        {/if}
-
-        <!-- Стековый бар: итого в месяц -->
+        <!-- 1. Нагрузка по месяцам — чистый бар -->
         <div class="chart-card">
-          <p class="chart-title">Итоговая нагрузка в месяц</p>
-          <div class="chart-legend">
-            {#each credits as c, i}
-              <div class="legend-item">
-                <span class="legend-dot" style="background:{CREDIT_COLORS[i % CREDIT_COLORS.length]}"></span>
-                <span class="legend-name">{c.name}</span>
-              </div>
-            {/each}
-          </div>
+          <p class="chart-title">Платежи по месяцам</p>
           <div class="chart-scroll">
-            <svg width={chartData.totalW} height={CHART_H + 30} style="display:block;overflow:visible">
+            <svg width={chartData.totalW} height={CHART_H + 32} style="display:block;overflow:visible">
               {#each chartData.bars as bar}
-                {#each bar.segments as seg}
-                  <rect x={seg.x} y={seg.y} width={seg.w} height={seg.h} fill={seg.color} rx="2" opacity="0.85"/>
-                {/each}
-                {#if bar.segments.length > 0}
-                  <text x={bar.x + BAR_W / 2} y={bar.segments[0].y - 3} text-anchor="middle" class="chart-yr">{fmtNum(bar.total / 1000)}к</text>
-                {/if}
-                <text x={bar.x + BAR_W / 2} y={CHART_H + 13} text-anchor="middle" class="chart-lbl">{bar.label}</text>
+                {@const bh = Math.max(4, (bar.total / chartData.maxTotal) * CHART_H)}
+                {@const by = CHART_H - bh}
+                {@const isCurrent = bar.key === today().slice(0,7)}
+                <rect x={bar.x} y={by} width={BAR_W} height={bh} fill="var(--color-accent)" rx="3" opacity={isCurrent ? 1 : 0.55}/>
+                {#if isCurrent}<rect x={bar.x} y={by} width={BAR_W} height={2} fill="var(--color-accent)" rx="1"/>{/if}
+                <text x={bar.x + BAR_W/2} y={by - 4} text-anchor="middle" class="chart-amt">{fmtNum(bar.total/1000)}к</text>
+                <text x={bar.x + BAR_W/2} y={CHART_H + 14} text-anchor="middle" class="chart-lbl">{bar.label}</text>
                 {#if bar.year}
-                  <text x={bar.x + BAR_W / 2} y={CHART_H + 24} text-anchor="middle" class="chart-yr">{bar.year}</text>
+                  <text x={bar.x + BAR_W/2} y={CHART_H + 24} text-anchor="middle" class="chart-yr">{bar.year}</text>
                 {/if}
               {/each}
             </svg>
           </div>
         </div>
 
-        <!-- Рейтинг нагрузки -->
-        <div class="chart-card">
-          <p class="chart-title">Рейтинг по долгу</p>
-          <div class="ranking-list">
-            {#each creditRanking as item, i}
-              {@const color = CREDIT_COLORS[i % CREDIT_COLORS.length]}
-              <div class="ranking-row">
-                <div class="ranking-top">
-                  <div class="ranking-name-row">
-                    <span class="ranking-dot" style="background:{color}"></span>
-                    <span class="ranking-name">{item.credit.name}</span>
+        <!-- 2. Когда станет легче -->
+        {#if milestones.length > 0}
+          <div class="chart-card">
+            <p class="chart-title">Когда станет легче</p>
+            <div class="milestone-list">
+              {#each milestones as ms}
+                {@const color = CREDIT_COLORS[ms.colorIdx % CREDIT_COLORS.length]}
+                <div class="milestone-row">
+                  <span class="milestone-dot" style="background:{color}"></span>
+                  <div class="milestone-info">
+                    <span class="milestone-name">{ms.credit.name}</span>
+                    <span class="milestone-date">закроется {ms.label}</span>
                   </div>
-                  <span class="ranking-remaining">{fmtNum(item.remaining)} ₽</span>
+                  <span class="milestone-saving">−{fmtNum(ms.monthly)} ₽/мес</span>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- 3. Прогноз остатка -->
+        <div class="chart-card">
+          <p class="chart-title">Остаток через</p>
+          <div class="projection-tabs">
+            {#each [[1,'1 мес'],[3,'3 мес'],[6,'6 мес'],[12,'1 год']] as [n, lbl]}
+              <button class="proj-tab" class:active={projectionMonths === n} on:click={() => projectionMonths = n}>{lbl}</button>
+            {/each}
+          </div>
+          <div class="projection-total">
+            <span class="proj-total-label">Итого через {projectionMonths === 12 ? '1 год' : projectionMonths + ' мес'}</span>
+            <span class="proj-total-val">{fmtNum(projectedTotal)} ₽</span>
+            {#if projectedTotal < totalRemaining}
+              <span class="proj-total-delta">−{fmtNum(totalRemaining - projectedTotal)} ₽ от текущего</span>
+            {/if}
+          </div>
+          <div class="proj-list">
+            {#each projectedBalances as b}
+              {@const color = CREDIT_COLORS[b.colorIdx % CREDIT_COLORS.length]}
+              {@const pct = b.credit.is_complex ? (complexTotalSum(b.credit.id) > 0 ? Math.min(100, Math.round((1 - b.remaining / complexTotalSum(b.credit.id)) * 100)) : 0) : (b.credit.total_amount > 0 ? Math.min(100, Math.round((1 - b.remaining / b.credit.total_amount) * 100)) : 0)}
+              <div class="proj-row">
+                <div class="proj-name-row">
+                  <span class="ranking-dot" style="background:{color}"></span>
+                  <span class="proj-name">{b.credit.name}</span>
+                  <span class="proj-pct">{pct}% выплачено</span>
                 </div>
                 <div class="ranking-bar-wrap">
-                  <div class="ranking-bar-fill" style="width:{item.pct}%;background:{color}opacity:0.7"></div>
+                  <div class="ranking-bar-fill" style="width:{pct}%;background:{color}"></div>
                 </div>
-                <div class="ranking-meta">
-                  <span>{fmtNum(item.monthly)} ₽/мес · {item.pct}% бюджета</span>
-                  {#if item.forecast}<span>~{item.forecast}</span>{/if}
+                <div class="proj-amount">
+                  {b.remaining <= 0 ? '✓ Закрыт' : `${fmtNum(b.remaining)} ₽`}
                 </div>
               </div>
             {/each}
@@ -2068,6 +2106,64 @@
     font-size: 0.9375rem; font-weight: 600; color: var(--color-text);
     font-family: "JetBrains Mono", monospace; flex-shrink: 0;
   }
+
+  /* ── Month navigator ── */
+  .month-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--color-card); border: 1px solid var(--color-border);
+    border-radius: 1rem; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem;
+  }
+  .month-nav-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--color-accent); font-size: 1.375rem; line-height: 1;
+    padding: 0 0.25rem; -webkit-tap-highlight-color: transparent;
+  }
+  .month-nav-label {
+    font-size: 1rem; font-weight: 500; color: var(--color-text);
+    font-family: "Fraunces", serif;
+  }
+
+  /* ── Month total card ── */
+  .month-total-card {
+    background: var(--color-accent);
+    border-radius: 1rem; padding: 0.875rem 1rem;
+    margin-bottom: 0.75rem;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .month-total-label { font-size: 0.8125rem; color: rgba(255,255,255,0.75); }
+  .month-total-amount { font-size: 1.375rem; font-weight: 600; color: white; font-family: "JetBrains Mono", monospace; }
+
+  /* ── Analytics: chart amount labels ── */
+  :global(.chart-amt) { font-size: 8px; fill: var(--color-text); font-family: inherit; font-weight: 500; }
+
+  /* ── Milestones ── */
+  .milestone-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .milestone-row { display: flex; align-items: center; gap: 0.625rem; }
+  .milestone-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .milestone-info { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .milestone-name { font-size: 0.9375rem; font-weight: 500; color: var(--color-text); }
+  .milestone-date { font-size: 0.75rem; color: var(--color-muted); }
+  .milestone-saving { font-size: 0.875rem; font-weight: 600; color: #43a047; font-family: "JetBrains Mono", monospace; flex-shrink: 0; }
+
+  /* ── Projection ── */
+  .projection-tabs { display: flex; gap: 0.25rem; margin-bottom: 0.875rem; }
+  .proj-tab {
+    flex: 1; padding: 0.375rem; border: 1px solid var(--color-border);
+    border-radius: 0.625rem; font-size: 0.8125rem; font-family: inherit;
+    cursor: pointer; color: var(--color-muted); background: transparent;
+    -webkit-tap-highlight-color: transparent; transition: all 0.15s;
+  }
+  .proj-tab.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  .projection-total { margin-bottom: 1rem; }
+  .proj-total-label { font-size: 0.75rem; color: var(--color-muted); display: block; }
+  .proj-total-val { font-size: 1.5rem; font-weight: 300; color: var(--color-text); font-family: "Fraunces", serif; display: block; }
+  .proj-total-delta { font-size: 0.8125rem; color: #43a047; display: block; }
+  .proj-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .proj-row { display: flex; flex-direction: column; gap: 0.25rem; }
+  .proj-name-row { display: flex; align-items: center; gap: 0.375rem; }
+  .proj-name { flex: 1; font-size: 0.875rem; color: var(--color-text); font-weight: 500; }
+  .proj-pct { font-size: 0.75rem; color: var(--color-muted); }
+  .proj-amount { font-size: 0.875rem; color: var(--color-muted); text-align: right; }
 
   /* ── Credit ranking ── */
   .ranking-list { display: flex; flex-direction: column; gap: 0.875rem; }
