@@ -170,24 +170,18 @@
 
   .hub-card {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
     background: var(--color-card);
     border: 1px solid var(--color-border);
     border-radius: 1.25rem;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: all 0.15s;
-    min-height: 6.5rem;
   }
-  .hub-card.wide {
-    grid-column: 1 / -1;
-    flex-direction: row;
-    align-items: center;
-    gap: 1rem;
-    min-height: auto;
-  }
+  .hub-card.wide { grid-column: 1 / -1; }
   .hub-card:active { transform: scale(0.97); opacity: 0.85; }
 
   .hub-symbol {
@@ -210,8 +204,8 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
-  .hub-card:not(.wide) .hub-text { margin-top: auto; }
 
   .hub-name {
     font-size: 0.9375rem;
