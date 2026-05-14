@@ -4,7 +4,17 @@
   import { theme } from '../stores/theme'
   import { signOut } from '../stores/user'
   import { user } from '../stores/user'
+  import { showToast } from '../stores/toast'
   import type { Theme } from '../lib/types'
+
+  async function forceUpdate() {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration()
+      await reg?.update()
+    }
+    showToast('Обновляю...', 'info', 1000)
+    setTimeout(() => window.location.reload(), 1000)
+  }
 
   const THEMES: { id: Theme; label: string; bg: string; accent: string }[] = [
     { id: 'light',  label: 'Светлая', bg: '#FFFFFF',  accent: '#007AFF' },
@@ -48,7 +58,17 @@
       </Card>
     </section>
 
-    <section class="mt-6">
+    <section class="mt-4">
+      <p class="label mb-2">Приложение</p>
+      <Card>
+        <button class="update-btn" on:click={forceUpdate}>
+          Обновить приложение
+          <span class="update-hint">принудительно загрузить новую версию</span>
+        </button>
+      </Card>
+    </section>
+
+    <section class="mt-4">
       <button class="btn-ghost" on:click={handleSignOut}>
         Выйти
       </button>
@@ -125,6 +145,15 @@
     font-size: 0.9375rem;
     color: var(--color-text);
   }
+
+  .update-btn {
+    background: none; border: none; cursor: pointer; width: 100%;
+    text-align: left; padding: 0; display: flex; flex-direction: column; gap: 2px;
+    -webkit-tap-highlight-color: transparent;
+    font-size: 0.9375rem; color: var(--color-text);
+  }
+  .update-btn:active { opacity: 0.6; }
+  .update-hint { font-size: 0.75rem; color: var(--color-muted); }
 
   .version-label {
     text-align: center;

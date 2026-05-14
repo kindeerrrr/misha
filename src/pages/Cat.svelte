@@ -3,6 +3,7 @@
   import { supabase } from '../lib/supabase'
   import { user } from '../stores/user'
   import Modal from '../components/ui/Modal.svelte'
+  import { showToast } from '../stores/toast'
   import type { CatProfile, CatVaccine, CatHealthEvent, CatGrooming, CatFoodOrder } from '../lib/types'
 
   type CatTab = 'profile' | 'vaccines' | 'health' | 'grooming' | 'food'
@@ -200,12 +201,12 @@
     }
     if (selectedProfile) {
       const { data, error } = await supabase.from('cat_profiles').update(payload).eq('id', selectedProfile.id).select().single()
-      if (error) { saveError = error.message }
-      else if (data) { selectedProfile = data; profiles = profiles.map(p => p.id === data.id ? data : p) }
+      if (error) { saveError = error.message; showToast(error.message, 'error') }
+      else if (data) { selectedProfile = data; profiles = profiles.map(p => p.id === data.id ? data : p); showToast('Сохранено') }
     } else {
       const { data, error } = await supabase.from('cat_profiles').insert(payload).select().single()
-      if (error) { saveError = error.message }
-      else if (data) { profiles = [...profiles, data]; selectedProfile = data; isNewPet = false }
+      if (error) { saveError = error.message; showToast(error.message, 'error') }
+      else if (data) { profiles = [...profiles, data]; selectedProfile = data; isNewPet = false; showToast('Питомец добавлен') }
     }
     savingProfile = false
   }

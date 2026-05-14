@@ -13,6 +13,7 @@
   import Cat from './pages/Cat.svelte'
   import Settings from './pages/Settings.svelte'
   import Hub from './pages/Hub.svelte'
+  import Toast from './components/ui/Toast.svelte'
 </script>
 
 {#if $authLoading}
@@ -45,6 +46,7 @@
     {/if}
   </div>
   <BottomNav />
+  <Toast />
 {/if}
 
 <style>
