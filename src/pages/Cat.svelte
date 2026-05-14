@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { supabase, today } from '../lib/supabase'
   import { user } from '../stores/user'
+  import { icons } from '../lib/icons'
   import Modal from '../components/ui/Modal.svelte'
   import { showToast } from '../stores/toast'
   import type { CatProfile, CatVaccine, CatHealthEvent, CatGrooming, CatFoodOrder } from '../lib/types'
@@ -13,10 +14,10 @@
 
   const GROOM_TYPES = ['Грумер', 'Стрижка когтей', 'Чистка ушей', 'Купание']
   const HEALTH_CATEGORIES = [
-    { id: 'vet',      label: 'Врач',          icon: '🏥' },
-    { id: 'symptom',  label: 'Симптомы',      icon: '🤒' },
-    { id: 'analysis', label: 'Анализы',        icon: '🧪' },
-    { id: 'exam',     label: 'Обследование',  icon: '🔬' },
+    { id: 'vet',      label: 'Врач',         icon: icons.stethoscope },
+    { id: 'symptom',  label: 'Симптомы',     icon: icons.thermometer },
+    { id: 'analysis', label: 'Анализы',      icon: icons.flask },
+    { id: 'exam',     label: 'Обследование', icon: icons.scan },
   ]
   const CAT_BREEDS = [
     'Британская короткошёрстная', 'Шотландская вислоухая', 'Шотландская прямоухая', 'Мейн-кун', 'Сибирская',
@@ -41,16 +42,15 @@
     'Серый', 'Чёрно-белый', 'Рыже-белый', 'Чёрно-подпалый', 'Пятнистый',
   ]
   const ANIMAL_TYPES = [
-    { id: 'cat',     label: 'Кошка',  emoji: '🐱' },
-    { id: 'dog',     label: 'Собака', emoji: '🐶' },
-    { id: 'hamster', label: 'Хомяк',  emoji: '🐹' },
-    { id: 'bird',    label: 'Птица',  emoji: '🐦' },
-    { id: 'other',   label: 'Другое', emoji: '🐾' },
+    { id: 'cat',     label: 'Кошка'  },
+    { id: 'dog',     label: 'Собака' },
+    { id: 'hamster', label: 'Хомяк'  },
+    { id: 'bird',    label: 'Птица'  },
+    { id: 'other',   label: 'Другое' },
   ]
 
   function breedsFor(type: string) { return type === 'dog' ? DOG_BREEDS : type === 'cat' ? CAT_BREEDS : [] }
   function colorsFor(type: string) { return type === 'dog' ? DOG_COLORS : type === 'cat' ? CAT_COLORS : [] }
-  function petEmoji(type: string | null | undefined) { return ANIMAL_TYPES.find(t => t.id === type)?.emoji ?? '🐾' }
   function petAge(birthDate: string | null): string | null {
     if (!birthDate) return null
     const birth = new Date(birthDate + 'T12:00:00')
@@ -81,9 +81,15 @@
   let groomings: CatGrooming[] = []
   let foodOrders: CatFoodOrder[] = []
 
-  // Health filter
+  // Filters
   let healthFilter: string | null = null
+  let groomingFilter: string | null = null
+  let foodBrandFilter: string | null = null
+
   $: filteredHealth = healthFilter ? healthEvents.filter(e => e.category === healthFilter) : healthEvents
+  $: filteredGroomings = groomingFilter ? groomings.filter(g => g.type === groomingFilter) : groomings
+  $: foodBrands = [...new Set(foodOrders.map(f => f.brand))]
+  $: filteredFood = foodBrandFilter ? foodOrders.filter(f => f.brand === foodBrandFilter) : foodOrders
 
   // Upcoming
   $: nextVaccine = vaccines.filter(v => v.next_due && v.next_due > todayDate).sort((a,b) => a.next_due!.localeCompare(b.next_due!))[0] ?? null
@@ -211,7 +217,7 @@
     const payload = { user_id: $user.id, cat_id: selectedProfile.id, name: vName.trim(), date: vDate, next_due: vNextDue || null, clinic: vClinic || null, notes: vNotes || null }
     if (editingVacc) {
       const { data } = await supabase.from('cat_vaccines').update(payload).eq('id', editingVacc.id).select().single()
-      if (data) vaccines = vaccines.map(v => v.id === editingVacc!.id ? data : v)
+      if (data) { vaccines = vaccines.map(v => v.id === editingVacc!.id ? data : v); showToast('Сохранено') }
     } else {
       const { data } = await supabase.from('cat_vaccines').insert(payload).select().single()
       if (data) { vaccines = [data, ...vaccines]; showToast('Прививка добавлена') }
@@ -231,7 +237,7 @@
     const payload = { user_id: $user.id, cat_id: selectedProfile.id, date: hDate, description: hDesc.trim(), vet_visit: hCategory === 'vet', category: hCategory }
     if (editingHealth) {
       const { data } = await supabase.from('cat_health_events').update(payload).eq('id', editingHealth.id).select().single()
-      if (data) healthEvents = healthEvents.map(e => e.id === editingHealth!.id ? data : e)
+      if (data) { healthEvents = healthEvents.map(e => e.id === editingHealth!.id ? data : e); showToast('Сохранено') }
     } else {
       const { data } = await supabase.from('cat_health_events').insert(payload).select().single()
       if (data) { healthEvents = [data, ...healthEvents]; showToast('Запись добавлена') }
@@ -250,7 +256,7 @@
     const payload = { user_id: $user.id, cat_id: selectedProfile.id, date: gDate, type: gType, next_due: gNextDue || null, notes: gNotes || null }
     if (editingGroom) {
       const { data } = await supabase.from('cat_groomings').update(payload).eq('id', editingGroom.id).select().single()
-      if (data) groomings = groomings.map(g => g.id === editingGroom!.id ? data : g)
+      if (data) { groomings = groomings.map(g => g.id === editingGroom!.id ? data : g); showToast('Сохранено') }
     } else {
       const { data } = await supabase.from('cat_groomings').insert(payload).select().single()
       if (data) { groomings = [data, ...groomings]; showToast('Запись добавлена') }
@@ -270,10 +276,10 @@
     const payload = { user_id: $user.id, cat_id: selectedProfile.id, date: fDate, brand: fBrand.trim(), product: fProduct || fBrand.trim(), quantity: fQty || null, price: fPrice ? parseFloat(fPrice) : null, next_order: fNext || null }
     if (editingFood) {
       const { data } = await supabase.from('cat_food_orders').update(payload).eq('id', editingFood.id).select().single()
-      if (data) foodOrders = foodOrders.map(f => f.id === editingFood!.id ? data : f)
+      if (data) { foodOrders = foodOrders.map(f => f.id === editingFood!.id ? data : f); showToast('Сохранено') }
     } else {
       const { data } = await supabase.from('cat_food_orders').insert(payload).select().single()
-      if (data) { foodOrders = [data, ...foodOrders]; showToast('Запись добавлена') }
+      if (data) { foodOrders = [data, ...foodOrders]; showToast('Заказ добавлен') }
     }
     showFoodModal = false; savingFood = false
   }
@@ -286,10 +292,12 @@
     else if (arr === 'food') foodOrders = foodOrders.filter(f => f.id !== id)
   }
 
-  function fmt(d: string) {
+  function fmt(d: string | null | undefined) {
+    if (!d) return ''
     return new Date(d + 'T12:00:00').toLocaleDateString('ru', { day: 'numeric', month: 'short' })
   }
-  function fmtFull(d: string) {
+  function fmtFull(d: string | null | undefined) {
+    if (!d) return ''
     return new Date(d + 'T12:00:00').toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' })
   }
 
@@ -311,7 +319,7 @@
     </header>
     {#if profiles.length === 0}
       <div class="empty-state mt-4">
-        <div class="empty-emoji">🐾</div>
+        <div class="empty-icon">{@html icons.paw}</div>
         <p>Добавь первого питомца</p>
         <button class="btn-primary" style="margin-top:1rem" on:click={startNewPet}>Добавить питомца</button>
       </div>
@@ -324,7 +332,7 @@
               {#if p.photo_url}
                 <img src={p.photo_url} alt={p.name} class="pet-img" />
               {:else}
-                <span class="pet-emoji-big">{petEmoji(p.animal_type)}</span>
+                <div class="pet-icon-wrap">{@html icons.paw}</div>
               {/if}
             </div>
             <div class="pet-card-info">
@@ -353,7 +361,7 @@
               {#if selectedProfile.photo_url}
                 <img src={selectedProfile.photo_url} alt={selectedProfile.name} class="pet-img" />
               {:else}
-                <span class="pet-emoji-md">{petEmoji(selectedProfile.animal_type)}</span>
+                <div class="pet-icon-sm">{@html icons.paw}</div>
               {/if}
             </div>
             <div class="pet-hero-info">
@@ -377,27 +385,27 @@
       <!-- Section grid -->
       <div class="sections-grid">
         <button class="section-card" on:click={() => catSection = 'vaccines'}>
-          <span class="section-card-icon">💉</span>
+          <div class="section-card-icon">{@html icons.pill}</div>
           <span class="section-card-label">Прививки</span>
           <span class="section-card-count">{vaccines.length}</span>
-          {#if nextVaccine}<span class="section-card-hint">след. {fmt(nextVaccine.next_due ?? '')}</span>{/if}
+          {#if nextVaccine}<span class="section-card-hint">след. {fmt(nextVaccine.next_due)}</span>{/if}
         </button>
         <button class="section-card" on:click={() => catSection = 'grooming'}>
-          <span class="section-card-icon">✂️</span>
+          <div class="section-card-icon">{@html icons.scissors}</div>
           <span class="section-card-label">Уход</span>
           <span class="section-card-count">{groomings.length}</span>
-          {#if nextGroom}<span class="section-card-hint">след. {fmt(nextGroom.next_due ?? '')}</span>{/if}
+          {#if nextGroom}<span class="section-card-hint">след. {fmt(nextGroom.next_due)}</span>{/if}
         </button>
         <button class="section-card" on:click={() => catSection = 'health'}>
-          <span class="section-card-icon">🏥</span>
+          <div class="section-card-icon">{@html icons.stethoscope}</div>
           <span class="section-card-label">Здоровье</span>
           <span class="section-card-count">{healthEvents.length}</span>
         </button>
         <button class="section-card" on:click={() => catSection = 'food'}>
-          <span class="section-card-icon">🍽</span>
+          <div class="section-card-icon">{@html icons.bowl}</div>
           <span class="section-card-label">Корм</span>
           <span class="section-card-count">{foodOrders.length}</span>
-          {#if nextFood}<span class="section-card-hint">след. {fmt(nextFood.next_order ?? '')}</span>{/if}
+          {#if nextFood}<span class="section-card-hint">след. {fmt(nextFood.next_order)}</span>{/if}
         </button>
       </div>
 
@@ -408,23 +416,23 @@
           <div class="upcoming-list">
             {#if nextVaccine}
               <div class="upcoming-item">
-                <span class="upcoming-icon">💉</span>
+                <div class="upcoming-icon">{@html icons.pill}</div>
                 <span class="upcoming-label">{nextVaccine.name}</span>
-                <span class="upcoming-date">{fmt(nextVaccine.next_due ?? '')}</span>
+                <span class="upcoming-date">{fmt(nextVaccine.next_due)}</span>
               </div>
             {/if}
             {#if nextGroom}
               <div class="upcoming-item">
-                <span class="upcoming-icon">✂️</span>
+                <div class="upcoming-icon">{@html icons.scissors}</div>
                 <span class="upcoming-label">{nextGroom.type}</span>
-                <span class="upcoming-date">{fmt(nextGroom.next_due ?? '')}</span>
+                <span class="upcoming-date">{fmt(nextGroom.next_due)}</span>
               </div>
             {/if}
             {#if nextFood}
               <div class="upcoming-item">
-                <span class="upcoming-icon">🍽</span>
+                <div class="upcoming-icon">{@html icons.bowl}</div>
                 <span class="upcoming-label">{nextFood.brand}</span>
-                <span class="upcoming-date">{fmt(nextFood.next_order ?? '')}</span>
+                <span class="upcoming-date">{fmt(nextFood.next_order)}</span>
               </div>
             {/if}
           </div>
@@ -476,11 +484,11 @@
 
       <!-- HEALTH -->
       {#if catSection === 'health'}
-        <div class="health-filter-row mt-2">
-          <button class="health-filter-btn" class:active={healthFilter === null} on:click={() => healthFilter = null}>Все</button>
+        <div class="filter-row mt-2">
+          <button class="filter-btn" class:active={healthFilter === null} on:click={() => healthFilter = null}>Все</button>
           {#each HEALTH_CATEGORIES as c}
-            <button class="health-filter-btn" class:active={healthFilter === c.id} on:click={() => healthFilter = healthFilter === c.id ? null : c.id}>
-              {c.icon} {c.label}
+            <button class="filter-btn" class:active={healthFilter === c.id} on:click={() => healthFilter = healthFilter === c.id ? null : c.id}>
+              <span class="filter-btn-icon">{@html c.icon}</span>{c.label}
             </button>
           {/each}
         </div>
@@ -491,8 +499,8 @@
             {#each filteredHealth as e}
               <div class="item-card">
                 <div class="item-row">
-                  <div class="item-category-badge" style="background:{e.category === 'vet' ? '#dbeafe' : e.category === 'symptom' ? '#fef3c7' : e.category === 'analysis' ? '#d1fae5' : '#ede9fe'}">
-                    {categoryFor(e.category).icon}
+                  <div class="item-category-badge cat-{e.category}">
+                    <span class="cat-badge-icon">{@html categoryFor(e.category).icon}</span>
                   </div>
                   <div class="item-main">
                     <div class="item-title-row">
@@ -514,11 +522,21 @@
 
       <!-- GROOMING -->
       {#if catSection === 'grooming'}
-        {#if groomings.length === 0}
+        {#if groomings.length > 0}
+          <div class="filter-row mt-2">
+            <button class="filter-btn" class:active={groomingFilter === null} on:click={() => groomingFilter = null}>Все</button>
+            {#each GROOM_TYPES as t}
+              {#if groomings.some(g => g.type === t)}
+                <button class="filter-btn" class:active={groomingFilter === t} on:click={() => groomingFilter = groomingFilter === t ? null : t}>{t}</button>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+        {#if filteredGroomings.length === 0}
           <div class="empty-state mt-3">Визитов пока нет</div>
         {:else}
           <div class="item-list mt-3">
-            {#each groomings as g}
+            {#each filteredGroomings as g}
               <div class="item-card">
                 <div class="item-row">
                   <div class="item-main">
@@ -540,11 +558,19 @@
 
       <!-- FOOD -->
       {#if catSection === 'food'}
-        {#if foodOrders.length === 0}
+        {#if foodBrands.length > 1}
+          <div class="filter-row mt-2">
+            <button class="filter-btn" class:active={foodBrandFilter === null} on:click={() => foodBrandFilter = null}>Все</button>
+            {#each foodBrands as b}
+              <button class="filter-btn" class:active={foodBrandFilter === b} on:click={() => foodBrandFilter = foodBrandFilter === b ? null : b}>{b}</button>
+            {/each}
+          </div>
+        {/if}
+        {#if filteredFood.length === 0}
           <div class="empty-state mt-3">Заказов пока нет</div>
         {:else}
           <div class="item-list mt-3">
-            {#each foodOrders as f}
+            {#each filteredFood as f}
               <div class="item-card">
                 <div class="item-row">
                   <div class="item-main">
@@ -574,7 +600,7 @@
         {#if pPhotoUrl}
           <img src={pPhotoUrl} alt="Фото" class="photo-preview" />
         {:else}
-          <div class="photo-placeholder">{petEmoji(pAnimalType)}</div>
+          <div class="photo-placeholder-icon">{@html icons.paw}</div>
         {/if}
       </div>
       <label class="photo-upload-btn">
@@ -587,8 +613,7 @@
       <div class="animal-type-row">
         {#each ANIMAL_TYPES as t}
           <button class="animal-type-btn" class:selected={pAnimalType === t.id} on:click={() => pAnimalType = t.id}>
-            <span class="animal-emoji">{t.emoji}</span>
-            <span class="animal-label">{t.label}</span>
+            {t.label}
           </button>
         {/each}
       </div>
@@ -668,7 +693,7 @@
       <div class="health-cat-row">
         {#each HEALTH_CATEGORIES as c}
           <button class="health-cat-btn" class:selected={hCategory === c.id} on:click={() => hCategory = c.id}>
-            {c.icon} {c.label}
+            <span class="cat-btn-icon">{@html c.icon}</span>{c.label}
           </button>
         {/each}
       </div>
@@ -736,7 +761,8 @@
   .pet-hub-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 0 1rem; }
   .pet-hero { flex: 1; display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
   .pet-avatar-sm { width: 3.5rem; height: 3.5rem; border-radius: 50%; background: var(--color-card); border: 1px solid var(--color-border); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .pet-emoji-md { font-size: 1.75rem; line-height: 1; }
+  .pet-icon-sm { color: var(--color-accent); width: 1.5rem; height: 1.5rem; }
+  .pet-icon-sm :global(svg) { width: 100%; height: 100%; }
   .pet-hero-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .pet-hero-name { font-size: 1.125rem; font-weight: 500; color: var(--color-text); }
   .pet-hero-sub { font-size: 0.8125rem; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -748,7 +774,8 @@
   .sections-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; margin-bottom: 1.25rem; }
   .section-card { background: var(--color-card); border: 1px solid var(--color-border); border-radius: 1.25rem; padding: 1rem; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; text-align: left; -webkit-tap-highlight-color: transparent; transition: opacity 0.15s; }
   .section-card:active { opacity: 0.7; }
-  .section-card-icon { font-size: 1.5rem; line-height: 1; margin-bottom: 0.25rem; }
+  .section-card-icon { width: 2rem; height: 2rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 0.625rem; display: flex; align-items: center; justify-content: center; color: var(--color-accent); padding: 0.375rem; margin-bottom: 0.25rem; flex-shrink: 0; }
+  .section-card-icon :global(svg) { width: 100%; height: 100%; }
   .section-card-label { font-size: 0.9375rem; color: var(--color-text); font-weight: 500; }
   .section-card-count { font-family: "JetBrains Mono", monospace; font-size: 1.25rem; color: var(--color-accent); line-height: 1; }
   .section-card-hint { font-size: 0.75rem; color: var(--color-muted); }
@@ -757,28 +784,40 @@
   .upcoming-section { margin-top: 0.25rem; }
   .upcoming-list { display: flex; flex-direction: column; gap: 0.375rem; }
   .upcoming-item { display: flex; align-items: center; gap: 0.625rem; padding: 0.625rem 0.875rem; background: var(--color-card); border: 1px solid var(--color-border); border-radius: 0.875rem; }
-  .upcoming-icon { font-size: 1rem; flex-shrink: 0; }
+  .upcoming-icon { width: 1.25rem; height: 1.25rem; color: var(--color-muted); flex-shrink: 0; }
+  .upcoming-icon :global(svg) { width: 100%; height: 100%; }
   .upcoming-label { flex: 1; font-size: 0.9375rem; color: var(--color-text); }
   .upcoming-date { font-size: 0.8125rem; color: var(--color-accent); font-family: "JetBrains Mono", monospace; white-space: nowrap; }
 
   /* Section view header */
   .section-header-row { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 0 0.75rem; }
 
-  /* Health filter */
-  .health-filter-row { display: flex; gap: 0.375rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 0.25rem; }
-  .health-filter-row::-webkit-scrollbar { display: none; }
-  .health-filter-btn { flex: 0 0 auto; padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: 2rem; background: var(--color-card); font-size: 0.8125rem; color: var(--color-muted); cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; transition: all 0.15s; }
-  .health-filter-btn.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  /* Filter row (health, grooming, food) */
+  .filter-row { display: flex; gap: 0.375rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 0.25rem; }
+  .filter-row::-webkit-scrollbar { display: none; }
+  .filter-btn { flex: 0 0 auto; display: flex; align-items: center; gap: 0.25rem; padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: 2rem; background: var(--color-card); font-size: 0.8125rem; color: var(--color-muted); cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; transition: all 0.15s; }
+  .filter-btn.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  .filter-btn-icon { width: 0.875rem; height: 0.875rem; display: flex; align-items: center; flex-shrink: 0; }
+  .filter-btn-icon :global(svg) { width: 100%; height: 100%; }
+  .filter-btn.active .filter-btn-icon { color: white; }
 
   /* Health category badge in list */
-  .item-category-badge { width: 2.25rem; height: 2.25rem; border-radius: 0.625rem; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+  .item-category-badge { width: 2.25rem; height: 2.25rem; border-radius: 0.625rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .cat-vet      { background: #dbeafe; color: #1d4ed8; }
+  .cat-symptom  { background: #fef3c7; color: #b45309; }
+  .cat-analysis { background: #d1fae5; color: #047857; }
+  .cat-exam     { background: #ede9fe; color: #6d28d9; }
+  .cat-badge-icon { width: 1rem; height: 1rem; display: flex; align-items: center; }
+  .cat-badge-icon :global(svg) { width: 100%; height: 100%; }
   .item-title-row { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
   .item-category-label { font-size: 0.75rem; color: var(--color-muted); }
 
   /* Health form category */
   .health-cat-row { display: flex; flex-wrap: wrap; gap: 0.375rem; }
-  .health-cat-btn { padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: 2rem; background: var(--color-card); font-size: 0.8125rem; color: var(--color-muted); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.15s; white-space: nowrap; }
+  .health-cat-btn { display: flex; align-items: center; gap: 0.25rem; padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: 2rem; background: var(--color-card); font-size: 0.8125rem; color: var(--color-muted); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.15s; white-space: nowrap; }
   .health-cat-btn.selected { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  .cat-btn-icon { width: 0.875rem; height: 0.875rem; display: flex; align-items: center; flex-shrink: 0; }
+  .cat-btn-icon :global(svg) { width: 100%; height: 100%; }
 
   /* Landing grid */
   .pet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-top: 0.5rem; }
@@ -786,7 +825,8 @@
   .pet-card:active { opacity: 0.75; }
   .pet-avatar { width: 5rem; height: 5rem; border-radius: 50%; background: var(--color-bg); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
   .pet-img { width: 100%; height: 100%; object-fit: cover; }
-  .pet-emoji-big { font-size: 2.5rem; line-height: 1; }
+  .pet-icon-wrap { color: var(--color-accent); width: 2.5rem; height: 2.5rem; }
+  .pet-icon-wrap :global(svg) { width: 100%; height: 100%; }
   .pet-card-info { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
   .pet-card-name { font-size: 1rem; font-weight: 500; color: var(--color-text); }
   .pet-card-sub { font-size: 0.75rem; color: var(--color-muted); }
@@ -809,14 +849,12 @@
   .photo-field { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 1rem; }
   .photo-preview-wrap { width: 4rem; height: 4rem; border-radius: 50%; background: var(--color-card); border: 1px solid var(--color-border); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .photo-preview { width: 100%; height: 100%; object-fit: cover; }
-  .photo-placeholder { font-size: 1.75rem; line-height: 1; }
+  .photo-placeholder-icon { color: var(--color-accent); width: 2rem; height: 2rem; }
+  .photo-placeholder-icon :global(svg) { width: 100%; height: 100%; }
   .photo-upload-btn { flex: 1; padding: 0.5rem 0.875rem; border: 1px dashed var(--color-border); border-radius: 0.75rem; font-size: 0.875rem; color: var(--color-accent); cursor: pointer; text-align: center; -webkit-tap-highlight-color: transparent; }
   .animal-type-row { display: flex; gap: 0.375rem; flex-wrap: wrap; }
-  .animal-type-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0.5rem 0.625rem; border: 1px solid var(--color-border); border-radius: 0.875rem; background: var(--color-card); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.15s; }
+  .animal-type-btn { padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: 0.875rem; background: var(--color-card); cursor: pointer; font-size: 0.8125rem; color: var(--color-muted); -webkit-tap-highlight-color: transparent; transition: all 0.15s; white-space: nowrap; }
   .animal-type-btn.selected { border-color: var(--color-accent); background: var(--color-accent); color: white; }
-  .animal-emoji { font-size: 1.25rem; line-height: 1; }
-  .animal-label { font-size: 0.6875rem; color: var(--color-muted); white-space: nowrap; }
-  .animal-type-btn.selected .animal-label { color: rgba(255,255,255,0.85); }
   .chip-grid { display: flex; flex-wrap: wrap; gap: 0.375rem; }
   .chip { padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: 2rem; background: var(--color-card); font-size: 0.8125rem; color: var(--color-muted); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.15s; white-space: nowrap; }
   .chip.selected { background: var(--color-accent); border-color: var(--color-accent); color: white; }
@@ -833,7 +871,8 @@
   .save-error { font-size: 0.8125rem; color: #ef4444; background: rgba(239,68,68,0.08); border-radius: 0.5rem; padding: 0.5rem 0.75rem; margin: 0; }
   .load-error { padding: 1rem; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3); border-radius: 1rem; color: #ef4444; font-size: 0.875rem; }
   .empty-state { padding: 2.5rem 2rem; text-align: center; color: var(--color-muted); background: var(--color-card); border-radius: 1.25rem; border: 1px dashed var(--color-border); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
-  .empty-emoji { font-size: 2.5rem; }
+  .empty-icon { color: var(--color-accent); opacity: 0.4; width: 2.5rem; height: 2.5rem; }
+  .empty-icon :global(svg) { width: 100%; height: 100%; }
   .skeleton { border-radius: 1.25rem; background: linear-gradient(90deg, var(--color-card) 25%, var(--color-card-hover) 50%, var(--color-card) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
   .mt-2 { margin-top: 0.5rem; }
