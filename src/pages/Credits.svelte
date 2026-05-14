@@ -177,9 +177,57 @@
   }
 
   // ── View state ─────────────────────────────────────────────────────────────
+  type MainTab = 'credits' | 'payments' | 'analytics'
+  let mainTab: MainTab = 'credits'
   let view: 'list' | 'detail' = 'list'
   let activeCredit: Credit | null = null
   let loading = true
+
+  // ── Payments tab ───────────────────────────────────────────────────────────
+  type PayFilter = 'week' | 'month' | 'all'
+  let payFilter: PayFilter = 'week'
+
+  type FlatPayment = { creditId: string; creditName: string; colorIdx: number; date: string; amount: number; paid: boolean; paymentId: string | null }
+
+  $: allUpcomingFlat = (() => {
+    const result: FlatPayment[] = []
+    const creditIdx = new Map(credits.map((c, i) => [c.id, i]))
+
+    // Simple credits: project from next payment date
+    for (const c of credits) {
+      if (c.is_complex || !c.monthly_payment || !c.payment_day) continue
+      const now = new Date()
+      const day = c.payment_day
+      let d = new Date(now.getFullYear(), now.getMonth(), day)
+      if (d.getTime() < now.setHours(0, 0, 0, 0)) d = new Date(d.getFullYear(), d.getMonth() + 1, day)
+      const end = c.end_date ? new Date(c.end_date + 'T12:00:00') : null
+      let count = 0
+      while ((!end || d <= end) && count < 36) {
+        result.push({ creditId: c.id, creditName: c.name, colorIdx: creditIdx.get(c.id) ?? 0, date: localDateStr(d), amount: c.monthly_payment!, paid: false, paymentId: null })
+        d = new Date(d.getFullYear(), d.getMonth() + 1, day)
+        count++
+      }
+    }
+
+    // Complex credits: use actual unpaid scheduled payments
+    for (const p of payments) {
+      if (p.paid) continue
+      const c = credits.find(x => x.id === p.credit_id)
+      if (!c) continue
+      result.push({ creditId: c.id, creditName: c.name, colorIdx: creditIdx.get(c.id) ?? 0, date: p.date, amount: p.amount, paid: false, paymentId: p.id })
+    }
+
+    return result.sort((a, b) => a.date.localeCompare(b.date))
+  })()
+
+  $: filteredPayments = (() => {
+    const now = new Date(); now.setHours(0, 0, 0, 0)
+    const cutoff = new Date(now)
+    if (payFilter === 'week') cutoff.setDate(cutoff.getDate() + 7)
+    else if (payFilter === 'month') cutoff.setDate(cutoff.getDate() + 30)
+    else return allUpcomingFlat
+    return allUpcomingFlat.filter(p => new Date(p.date + 'T12:00:00') <= cutoff)
+  })()
 
   // ── Data ───────────────────────────────────────────────────────────────────
   let credits: Credit[] = []
@@ -716,47 +764,159 @@
       <div class="header-text">
         <h1 class="page-title">Кредиты</h1>
       </div>
-      <button class="fab-inline" on:click={openNewCredit} aria-label="Добавить">
-        {@html icons.plus}
-      </button>
+      {#if mainTab === 'credits'}
+        <button class="fab-inline" on:click={openNewCredit} aria-label="Добавить">
+          {@html icons.plus}
+        </button>
+      {/if}
     </header>
 
-    {#if credits.length > 1}
-      <div class="sort-row">
-        <button class="sort-chip" class:active={sortMode === 'date'}   on:click={() => sortMode = 'date'}>По дате</button>
-        <button class="sort-chip" class:active={sortMode === 'name'}   on:click={() => sortMode = 'name'}>По алфавиту</button>
-        <button class="sort-chip" class:active={sortMode === 'amount'} on:click={() => sortMode = 'amount'}>По сумме</button>
-      </div>
-    {/if}
+    <div class="main-tabs">
+      <button class="main-tab" class:active={mainTab === 'credits'}   on:click={() => mainTab = 'credits'}>Кредиты</button>
+      <button class="main-tab" class:active={mainTab === 'payments'}  on:click={() => mainTab = 'payments'}>Платежи</button>
+      <button class="main-tab" class:active={mainTab === 'analytics'} on:click={() => mainTab = 'analytics'}>Аналитика</button>
+    </div>
 
-    {#if loading}
-      <p class="muted-hint">Загрузка...</p>
-    {:else if credits.length === 0}
-      <div class="empty-state">
-        <div class="empty-icon">{@html icons.credit_card}</div>
-        <p class="empty-title">Нет кредитов</p>
-        <p class="empty-sub">Добавь кредит или долг</p>
-      </div>
-    {:else}
-      <div class="summary-card">
-        <div class="summary-row">
-          <div>
-            <span class="summary-label">Итого к выплате</span>
-            <span class="summary-amount">{totalWithInterestAll.toLocaleString('ru-RU')} ₽</span>
-            {#if totalWithInterestAll !== totalRemaining}
-              <span class="summary-principal">тело долга {totalRemaining.toLocaleString('ru-RU')} ₽</span>
+    <!-- ══ Вкладка: Кредиты ══ -->
+    {#if mainTab === 'credits'}
+      {#if credits.length > 1}
+        <div class="sort-row">
+          <button class="sort-chip" class:active={sortMode === 'date'}   on:click={() => sortMode = 'date'}>По дате</button>
+          <button class="sort-chip" class:active={sortMode === 'name'}   on:click={() => sortMode = 'name'}>По алфавиту</button>
+          <button class="sort-chip" class:active={sortMode === 'amount'} on:click={() => sortMode = 'amount'}>По сумме</button>
+        </div>
+      {/if}
+      {#if loading}
+        <p class="muted-hint">Загрузка...</p>
+      {:else if credits.length === 0}
+        <div class="empty-state">
+          <div class="empty-icon">{@html icons.credit_card}</div>
+          <p class="empty-title">Нет кредитов</p>
+          <p class="empty-sub">Добавь кредит или долг</p>
+        </div>
+      {:else}
+        <div class="summary-card">
+          <div class="summary-row">
+            <div>
+              <span class="summary-label">Итого к выплате</span>
+              <span class="summary-amount">{totalWithInterestAll.toLocaleString('ru-RU')} ₽</span>
+              {#if totalWithInterestAll !== totalRemaining}
+                <span class="summary-principal">тело долга {totalRemaining.toLocaleString('ru-RU')} ₽</span>
+              {/if}
+            </div>
+            {#if totalMonthly > 0}
+              <div class="summary-monthly">
+                <span class="summary-label">В месяц</span>
+                <span class="summary-monthly-val">{totalMonthly.toLocaleString('ru-RU')} ₽</span>
+              </div>
             {/if}
           </div>
-          {#if totalMonthly > 0}
-            <div class="summary-monthly">
-              <span class="summary-label">В месяц</span>
-              <span class="summary-monthly-val">{totalMonthly.toLocaleString('ru-RU')} ₽</span>
-            </div>
-          {/if}
         </div>
-      </div>
+        <div class="credit-list">
+          {#each sortedCredits as credit}
+            {@const pct = paidPct(credit)}
+            {@const nextDate = credit.is_complex ? complexNextDate(credit.id) : nextPaymentDate(credit.payment_day)}
+            {@const days = daysUntil(nextDate)}
+            {@const forecast = closureForecast(credit)}
+            {@const twi = credit.is_complex ? null : totalWithInterest(credit)}
+            {@const cMonthly = credit.is_complex ? complexMonthlySum(credit.id) : 0}
+            {@const cTotal = credit.is_complex ? complexTotalSum(credit.id) : credit.total_amount}
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <div class="credit-card" on:click={() => openDetail(credit)}>
+              <div class="credit-top">
+                <div class="credit-name-row">
+                  <span class="credit-name">{credit.name}</span>
+                  {#if credit.is_complex}<span class="complex-badge">Сплит</span>{/if}
+                </div>
+                <div class="credit-amounts">
+                  <span class="credit-remaining">{(twi ?? credit.remaining).toLocaleString('ru-RU')} ₽</span>
+                  {#if twi !== null && twi !== credit.remaining}
+                    <span class="credit-principal">тело {credit.remaining.toLocaleString('ru-RU')} ₽</span>
+                  {/if}
+                </div>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width:{pct}%"></div>
+              </div>
+              <div class="progress-labels">
+                <span>{pct}% выплачено</span>
+                <span>из {cTotal.toLocaleString('ru-RU')} ₽</span>
+              </div>
+              <div class="credit-meta">
+                {#if credit.is_complex && cMonthly > 0}
+                  <span class="meta-chip">{cMonthly.toLocaleString('ru-RU')} ₽/мес</span>
+                {:else if credit.monthly_payment}
+                  <span class="meta-chip">{credit.monthly_payment.toLocaleString('ru-RU')} ₽/мес</span>
+                {/if}
+                {#if nextDate && days !== null}
+                  <span class="meta-chip" class:urgent={days <= 3 && days >= 0} class:overdue={days < 0}>
+                    {#if days < 0}просрочен {Math.abs(days)} дн.
+                    {:else if days === 0}платёж сегодня
+                    {:else if days === 1}платёж завтра
+                    {:else}платёж {fmt(nextDate)}
+                    {/if}
+                  </span>
+                {/if}
+                {#if forecast}
+                  <span class="meta-chip">закроется ~{forecast}</span>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
 
-      {#if chartData && chartData.bars.length > 1}
+    <!-- ══ Вкладка: Платежи ══ -->
+    {:else if mainTab === 'payments'}
+      <div class="sort-row">
+        <button class="sort-chip" class:active={payFilter === 'week'}  on:click={() => payFilter = 'week'}>Неделя</button>
+        <button class="sort-chip" class:active={payFilter === 'month'} on:click={() => payFilter = 'month'}>Месяц</button>
+        <button class="sort-chip" class:active={payFilter === 'all'}   on:click={() => payFilter = 'all'}>Все</button>
+      </div>
+      {#if filteredPayments.length === 0}
+        <div class="empty-state">
+          <p class="empty-title">Платежей нет</p>
+          <p class="empty-sub">В выбранном периоде ничего не запланировано</p>
+        </div>
+      {:else}
+        {@const totalPeriod = filteredPayments.reduce((s, p) => s + p.amount, 0)}
+        <div class="pay-period-total">
+          Итого за период: <strong>{totalPeriod.toLocaleString('ru-RU')} ₽</strong>
+        </div>
+        <div class="pay-flat-list">
+          {#each filteredPayments as p}
+            {@const d = daysUntil(p.date)}
+            <div class="pay-flat-row" class:urgent={d !== null && d <= 3 && d >= 0} class:overdue={d !== null && d < 0}>
+              <span class="pay-flat-dot" style="background:{CREDIT_COLORS[p.colorIdx % CREDIT_COLORS.length]}"></span>
+              <div class="pay-flat-info">
+                <span class="pay-flat-name">{p.creditName}</span>
+                <span class="pay-flat-date">
+                  {fmt(p.date)}
+                  {#if d !== null}
+                    · {d < 0 ? `просрочен ${Math.abs(d)} дн.` : d === 0 ? 'сегодня' : d === 1 ? 'завтра' : `через ${d} дн.`}
+                  {/if}
+                </span>
+              </div>
+              <span class="pay-flat-amount">{p.amount.toLocaleString('ru-RU')} ₽</span>
+              {#if p.paymentId}
+                {@const realP = payments.find(x => x.id === p.paymentId)}
+                {#if realP}
+                  <button class="pay-btn" on:click={() => markPaid(realP)}>Оплатить</button>
+                {/if}
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+    <!-- ══ Вкладка: Аналитика ══ -->
+    {:else if mainTab === 'analytics'}
+      {#if !chartData || chartData.bars.length < 2}
+        <div class="empty-state" style="padding-top:3rem">
+          <p class="empty-title">Недостаточно данных</p>
+          <p class="empty-sub">Добавь кредиты с расписанием платежей</p>
+        </div>
+      {:else}
         <div class="chart-card">
           <p class="chart-title">Нагрузка по месяцам</p>
           <div class="chart-legend">
@@ -777,7 +937,6 @@
                 {#if bar.year}
                   <text x={bar.x + BAR_W / 2} y={CHART_H + 24} text-anchor="middle" class="chart-yr">{bar.year}</text>
                 {/if}
-                <!-- amount on top of bar -->
                 {#if bar.total >= chartData.maxTotal * 0.9 && bar.segments.length > 0}
                   <text x={bar.x + BAR_W / 2} y={bar.segments[0].y - 3} text-anchor="middle" class="chart-yr">{fmtNum(bar.total / 1000)}к</text>
                 {/if}
@@ -786,64 +945,8 @@
           </div>
         </div>
       {/if}
-
-      <div class="credit-list">
-        {#each sortedCredits as credit}
-          {@const pct = paidPct(credit)}
-          {@const nextDate = credit.is_complex ? complexNextDate(credit.id) : nextPaymentDate(credit.payment_day)}
-          {@const days = daysUntil(nextDate)}
-          {@const forecast = closureForecast(credit)}
-          {@const twi = credit.is_complex ? null : totalWithInterest(credit)}
-          {@const cMonthly = credit.is_complex ? complexMonthlySum(credit.id) : 0}
-          {@const cTotal = credit.is_complex ? complexTotalSum(credit.id) : credit.total_amount}
-          <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-          <div class="credit-card" on:click={() => openDetail(credit)}>
-            <div class="credit-top">
-              <div class="credit-name-row">
-                <span class="credit-name">{credit.name}</span>
-                {#if credit.is_complex}
-                  <span class="complex-badge">Сплит</span>
-                {/if}
-              </div>
-              <div class="credit-amounts">
-                <span class="credit-remaining">{(twi ?? credit.remaining).toLocaleString('ru-RU')} ₽</span>
-                {#if twi !== null && twi !== credit.remaining}
-                  <span class="credit-principal">тело {credit.remaining.toLocaleString('ru-RU')} ₽</span>
-                {/if}
-              </div>
-            </div>
-
-            <div class="progress-bar">
-              <div class="progress-fill" style="width:{pct}%"></div>
-            </div>
-            <div class="progress-labels">
-              <span>{pct}% выплачено</span>
-              <span>из {cTotal.toLocaleString('ru-RU')} ₽</span>
-            </div>
-
-            <div class="credit-meta">
-              {#if credit.is_complex && cMonthly > 0}
-                <span class="meta-chip">{cMonthly.toLocaleString('ru-RU')} ₽/мес</span>
-              {:else if credit.monthly_payment}
-                <span class="meta-chip">{credit.monthly_payment.toLocaleString('ru-RU')} ₽/мес</span>
-              {/if}
-              {#if nextDate && days !== null}
-                <span class="meta-chip" class:urgent={days <= 3 && days >= 0} class:overdue={days < 0}>
-                  {#if days < 0}просрочен {Math.abs(days)} дн.
-                  {:else if days === 0}платёж сегодня
-                  {:else if days === 1}платёж завтра
-                  {:else}платёж {fmt(nextDate)}
-                  {/if}
-                </span>
-              {/if}
-              {#if forecast}
-                <span class="meta-chip">закроется ~{forecast}</span>
-              {/if}
-            </div>
-          </div>
-        {/each}
-      </div>
     {/if}
+
   </div>
 
 <!-- ══════════════════════════════════════════════════════════ DETAIL VIEW ══ -->
@@ -1770,4 +1873,61 @@
   .early-preview.paid .early-preview-label { color: #43a047; }
   .early-preview-sub { font-size: 0.8125rem; color: var(--color-accent); }
   .early-preview-remaining { font-size: 0.8125rem; color: var(--color-muted); }
+
+  /* ── Main tabs ── */
+  .main-tabs {
+    display: flex; gap: 0.25rem;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    padding: 0.25rem;
+    margin-bottom: 1rem;
+  }
+  .main-tab {
+    flex: 1; padding: 0.4375rem 0.5rem;
+    border: none; border-radius: 999px;
+    font-size: 0.875rem; font-family: inherit;
+    cursor: pointer; color: var(--color-muted);
+    background: transparent; -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .main-tab.active {
+    background: var(--color-accent);
+    color: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+
+  /* ── Payments tab ── */
+  .pay-period-total {
+    font-size: 0.875rem; color: var(--color-muted);
+    margin-bottom: 0.75rem;
+    padding: 0 0.25rem;
+  }
+  .pay-period-total strong { color: var(--color-text); font-weight: 600; }
+
+  .pay-flat-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .pay-flat-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 0.875rem;
+    transition: border-color 0.15s;
+  }
+  .pay-flat-row.urgent { border-color: #e6510050; background: #e6510008; }
+  .pay-flat-row.overdue { border-color: #e5393550; background: #e5393508; }
+
+  .pay-flat-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .pay-flat-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .pay-flat-name { font-size: 0.9375rem; font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pay-flat-date { font-size: 0.75rem; color: var(--color-muted); }
+
+  .pay-flat-amount {
+    font-size: 0.9375rem; font-weight: 600; color: var(--color-text);
+    font-family: "JetBrains Mono", monospace; flex-shrink: 0;
+  }
 </style>
