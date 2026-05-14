@@ -250,18 +250,26 @@
       <input id="dr-date" type="date" bind:value={drDate} />
     </div>
 
-    {#each [
-      ['Общее самочувствие', drOverall, (v: number) => drOverall = v],
-      ['Энергия', drEnergy, (v: number) => drEnergy = v],
-      ['Тревожность (1=низкая)', drAnxiety, (v: number) => drAnxiety = v],
-      ['Продуктивность', drProductivity, (v: number) => drProductivity = v],
-      ['Тепло в отношениях', drWarmth, (v: number) => drWarmth = v],
-    ] as [label, val, setter]}
-      <div class="form-field">
-        <label class="label">{label}</label>
-        <StarRating value={val} on:change={e => setter(e.detail)} />
-      </div>
-    {/each}
+    <div class="form-field">
+      <label class="label">Общее самочувствие</label>
+      <StarRating value={drOverall} on:change={e => drOverall = e.detail} />
+    </div>
+    <div class="form-field">
+      <label class="label">Энергия</label>
+      <StarRating value={drEnergy} on:change={e => drEnergy = e.detail} />
+    </div>
+    <div class="form-field">
+      <label class="label">Тревожность (1=низкая)</label>
+      <StarRating value={drAnxiety} on:change={e => drAnxiety = e.detail} />
+    </div>
+    <div class="form-field">
+      <label class="label">Продуктивность</label>
+      <StarRating value={drProductivity} on:change={e => drProductivity = e.detail} />
+    </div>
+    <div class="form-field">
+      <label class="label">Тепло в отношениях</label>
+      <StarRating value={drWarmth} on:change={e => drWarmth = e.detail} />
+    </div>
 
     <div class="form-field">
       <label class="label" for="dr-highlight">Главное за день ✦</label>

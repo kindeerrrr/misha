@@ -492,11 +492,25 @@ alter table notion_sync_log          enable row level security;
 -- Helper macro: every table with user_id gets the same 4 policies
 -- (select / insert / update / delete own rows only)
 
+-- profiles uses id (not user_id) as the owner column
+drop policy if exists "profiles_select_own" on profiles;
+create policy "profiles_select_own" on profiles for select using (auth.uid() = id);
+
+drop policy if exists "profiles_insert_own" on profiles;
+create policy "profiles_insert_own" on profiles for insert with check (auth.uid() = id);
+
+drop policy if exists "profiles_update_own" on profiles;
+create policy "profiles_update_own" on profiles for update using (auth.uid() = id);
+
+drop policy if exists "profiles_delete_own" on profiles;
+create policy "profiles_delete_own" on profiles for delete using (auth.uid() = id);
+
+-- All other tables use user_id
 do $$
 declare
   t text;
   tables text[] := array[
-    'profiles','medications','medication_logs','sleep_logs',
+    'medications','medication_logs','sleep_logs',
     'daily_weights','weekly_measurements','workout_types','workout_logs',
     'doctor_visits','medical_research','annual_checkups',
     'emotion_entries','day_reports','expense_categories','expenses',
