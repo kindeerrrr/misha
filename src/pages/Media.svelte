@@ -32,7 +32,7 @@
   let timerInterval: ReturnType<typeof setInterval> | null = null
   let timerDisplay = '0:00'
 
-  // Form
+  // Form state
   let fTitle = ''
   let fType: MediaType = 'book'
   let fGenre = ''
@@ -42,8 +42,8 @@
   let fTotalPages = ''
   let fCurrentPage = ''
   let fSeasonsTotal = ''
-  let fCurrentSeason = ''
-  let fCurrentEpisode = ''
+  let fEpisodesPerSeason: number[] = []
+  let fFormSeason = 0
   let fSeasonRatings: number[] = []
   let fSeriesFinished = false
   let saving = false
@@ -81,9 +81,8 @@
     fTitle = ''; fType = 'book'; fGenre = ''; fStatus = status
     fRating = 0; fNotes = ''
     fTotalPages = ''; fCurrentPage = ''
-    fSeasonsTotal = ''; fCurrentSeason = ''; fCurrentEpisode = ''
-    fSeasonRatings = []
-    fSeriesFinished = false
+    fSeasonsTotal = ''; fEpisodesPerSeason = []; fFormSeason = 0
+    fSeasonRatings = []; fSeriesFinished = false
     showModal = true
   }
 
@@ -94,8 +93,8 @@
     fTotalPages = item.total_pages?.toString() ?? ''
     fCurrentPage = item.current_page?.toString() ?? ''
     fSeasonsTotal = item.seasons_total?.toString() ?? ''
-    fCurrentSeason = item.current_season?.toString() ?? ''
-    fCurrentEpisode = item.current_episode?.toString() ?? ''
+    fEpisodesPerSeason = [...(item.episodes_per_season ?? [])]
+    fFormSeason = Math.max(0, (item.current_season ?? 1) - 1)
     fSeasonRatings = item.season_ratings ?? []
     fSeriesFinished = !!(item.is_finished && item.status !== 'done')
     showModal = true
@@ -104,7 +103,9 @@
   async function save() {
     if (!$user || !fTitle.trim()) return
     saving = true
-    const payload = {
+    const n = parseInt(fSeasonsTotal)
+    const epsArr = fEpisodesPerSeason.slice(0, isNaN(n) ? 0 : n)
+    const payload: Record<string, unknown> = {
       user_id: $user.id,
       title: fTitle.trim(),
       type: fType,
@@ -114,11 +115,9 @@
       notes: fNotes || null,
       total_pages: fTotalPages ? parseInt(fTotalPages) : null,
       current_page: fCurrentPage ? parseInt(fCurrentPage) : null,
-      seasons_total: fSeasonsTotal ? parseInt(fSeasonsTotal) : null,
-      current_season: fCurrentSeason ? parseInt(fCurrentSeason) : null,
-      current_episode: fCurrentEpisode ? parseInt(fCurrentEpisode) : null,
+      seasons_total: !isNaN(n) && n > 0 ? n : null,
       is_finished: fStatus === 'done' || fSeriesFinished,
-      season_ratings: fSeasonRatings.length > 0 ? fSeasonRatings : null,
+      episodes_per_season: epsArr.some(e => e > 0) ? epsArr : null,
       started_at: fStatus !== 'want' && !editItem?.started_at ? new Date().toISOString() : editItem?.started_at ?? null,
       finished_at: fStatus === 'done' && !editItem?.finished_at ? new Date().toISOString() : editItem?.finished_at ?? null,
     }
@@ -149,6 +148,7 @@
     movingItemId = null
   }
 
+  // Book helpers
   function bookProgress(item: MediaItem): number {
     if (!item.current_page || !item.total_pages) return 0
     return Math.round((item.current_page / item.total_pages) * 100)
@@ -165,7 +165,6 @@
     return m > 0 ? `${h}ч ${m}м` : `${h}ч`
   }
 
-  // Inline page editing
   function startEditPage(item: MediaItem, e: Event) {
     e.stopPropagation()
     editingPageId = item.id
@@ -175,8 +174,7 @@
   function commitPage(item: MediaItem) {
     const page = parseInt(editingPageValue)
     if (!isNaN(page) && page >= 0) updateCurrentPage(item, page)
-    editingPageId = null
-    editingPageValue = ''
+    editingPageId = null; editingPageValue = ''
   }
 
   async function updateCurrentPage(item: MediaItem, page: number) {
@@ -185,49 +183,56 @@
     await supabase.from('media_items').update(updates).eq('id', item.id)
   }
 
-  // Series episode tracking
-  function getWatchedEps(item: MediaItem, seasonIdx: number): number[] {
-    return (item.watched_episodes ?? [])[seasonIdx] ?? []
-  }
-
+  // Series episode tracking — position-based (current_season + current_episode)
   function getEpsInSeason(item: MediaItem, seasonIdx: number): number {
     return (item.episodes_per_season ?? [])[seasonIdx] ?? 0
   }
 
-  function isEpWatched(item: MediaItem, seasonIdx: number, ep: number): boolean {
-    return getWatchedEps(item, seasonIdx).includes(ep)
+  // 'watched' = before current, 'current' = at current, 'remaining' = after
+  function getEpisodeState(item: MediaItem, seasonIdx: number, ep: number): 'watched' | 'current' | 'remaining' {
+    const curS = item.current_season ?? 0
+    const curE = item.current_episode ?? 0
+    const s = seasonIdx + 1
+    if (curS === 0) return 'remaining'
+    if (s < curS) return 'watched'
+    if (s === curS && ep < curE) return 'watched'
+    if (s === curS && ep === curE) return 'current'
+    return 'remaining'
   }
 
-  async function toggleEpisode(item: MediaItem, seasonIdx: number, ep: number) {
-    const watched: number[][] = (item.watched_episodes ?? []).map((a: number[]) => [...a])
-    while (watched.length <= seasonIdx) watched.push([])
-    const idx = watched[seasonIdx].indexOf(ep)
-    if (idx >= 0) watched[seasonIdx].splice(idx, 1)
-    else watched[seasonIdx].push(ep)
-    watched[seasonIdx].sort((a, b) => a - b)
+  // How many episodes are "watched" in a given season (episodes before current position)
+  function watchedCountInSeason(item: MediaItem, seasonIdx: number): number {
+    const s = seasonIdx + 1
+    const curS = item.current_season ?? 0
+    const curE = item.current_episode ?? 0
+    const total = getEpsInSeason(item, seasonIdx)
+    if (curS === 0) return 0
+    if (s < curS) return total
+    if (s === curS) return Math.max(0, curE - 1)
+    return 0
+  }
 
-    let current_season = item.current_season ?? 1
-    let current_episode = item.current_episode ?? 0
-    for (let s = 0; s < watched.length; s++) {
-      if (watched[s].length > 0) {
-        current_season = s + 1
-        current_episode = Math.max(...watched[s])
+  async function setCurrentEpisode(item: MediaItem, seasonIdx: number, ep: number) {
+    const s = seasonIdx + 1
+    const isCurrent = item.current_season === s && item.current_episode === ep
+    let newSeason = s
+    let newEp = ep
+
+    if (isCurrent) {
+      // Tapping current ep → advance to next
+      const epsInSeason = getEpsInSeason(item, seasonIdx)
+      if (ep < epsInSeason) {
+        newEp = ep + 1
+      } else if (s < (item.seasons_total ?? 1)) {
+        newSeason = s + 1
+        newEp = 1
+        selectedSeason = { ...selectedSeason, [item.id]: seasonIdx + 1 }
       }
     }
 
-    const updates = { watched_episodes: watched, current_season, current_episode }
+    const updates = { current_season: newSeason, current_episode: newEp }
     items = items.map(i => i.id === item.id ? { ...i, ...updates } : i)
     await supabase.from('media_items').update(updates).eq('id', item.id)
-
-    // Auto-advance to next season when current is complete
-    const epsInSeason = getEpsInSeason(item, seasonIdx)
-    if (epsInSeason > 0 && watched[seasonIdx].length === epsInSeason) {
-      const nextIdx = seasonIdx + 1
-      const totalSeasons = item.seasons_total ?? 1
-      if (nextIdx < totalSeasons) {
-        selectedSeason = { ...selectedSeason, [item.id]: nextIdx }
-      }
-    }
   }
 
   async function setEpsInSeason(item: MediaItem, seasonIdx: number, count: number) {
@@ -275,8 +280,7 @@
   async function stopAndSaveTimer(item: MediaItem) {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null }
     const minutes = Math.round((Date.now() - timerStart) / 60000)
-    timerItemId = null
-    timerDisplay = '0:00'
+    timerItemId = null; timerDisplay = '0:00'
     if (minutes < 1) return
     const today = new Date().toISOString().slice(0, 10)
     const log = [...(item.reading_log ?? []), { date: today, minutes }]
@@ -285,23 +289,25 @@
     await supabase.from('media_items').update(updates).eq('id', item.id)
   }
 
-  // Season ratings
-  function ensureSeasonRatingLength(n: number) {
-    while (fSeasonRatings.length < n) fSeasonRatings.push(0)
-    fSeasonRatings = fSeasonRatings.slice(0, n)
-  }
-
-  $: {
-    const n = parseInt(fSeasonsTotal)
-    if (fType === 'series' && !isNaN(n) && n > 0) ensureSeasonRatingLength(n)
+  // Season ratings (display only)
+  function seasonRatingStars(rating: number): string {
+    return '★'.repeat(rating) + '☆'.repeat(5 - rating)
   }
 
   function setSeasonRating(idx: number, val: number) {
     fSeasonRatings = fSeasonRatings.map((r, i) => i === idx ? val : r)
   }
 
-  function seasonRatingStars(rating: number): string {
-    return '★'.repeat(rating) + '☆'.repeat(5 - rating)
+  // Sync fEpisodesPerSeason & fSeasonRatings length with fSeasonsTotal
+  $: {
+    const n = parseInt(fSeasonsTotal)
+    if (fType === 'series' && !isNaN(n) && n > 0) {
+      while (fEpisodesPerSeason.length < n) fEpisodesPerSeason.push(0)
+      fEpisodesPerSeason = fEpisodesPerSeason.slice(0, n)
+      while (fSeasonRatings.length < n) fSeasonRatings.push(0)
+      fSeasonRatings = fSeasonRatings.slice(0, n)
+      if (fFormSeason >= n) fFormSeason = 0
+    }
   }
 
   onMount(load)
@@ -314,36 +320,20 @@
     <button class="add-btn" on:click={() => openAdd('want')}>+ Добавить</button>
   </header>
 
-  <!-- Status tabs -->
   <div class="status-tabs">
     {#each ALL_STATUSES as s}
-      <button
-        class="status-tab"
-        class:active={activeStatus === s}
-        on:click={() => { activeStatus = s }}
-      >
+      <button class="status-tab" class:active={activeStatus === s} on:click={() => { activeStatus = s }}>
         {statusLabel[s]}
-        {#if filtered(s).length > 0}
-          <span class="count">{filtered(s).length}</span>
-        {/if}
+        {#if filtered(s).length > 0}<span class="count">{filtered(s).length}</span>{/if}
       </button>
     {/each}
   </div>
 
-  <!-- Type filter chips — always visible when items exist in tab -->
   {#if !loading && typesInCurrentTab().length > 1}
     <div class="type-filter-row">
-      <button class="filter-chip" class:active={activeType === null} on:click={() => activeType = null}>
-        Все
-      </button>
+      <button class="filter-chip" class:active={activeType === null} on:click={() => activeType = null}>Все</button>
       {#each typesInCurrentTab() as t}
-        <button
-          class="filter-chip"
-          class:active={activeType === t}
-          on:click={() => activeType = t}
-        >
-          {typeFilterLabel[t]}
-        </button>
+        <button class="filter-chip" class:active={activeType === t} on:click={() => activeType = t}>{typeFilterLabel[t]}</button>
       {/each}
     </div>
   {/if}
@@ -352,8 +342,7 @@
     <div class="skeleton mt-4" style="height:10rem" />
   {:else if filteredWithType(activeStatus).length === 0}
     <div class="empty-state mt-4">
-      {activeStatus === 'want' ? 'Ничего не запланировано' :
-       activeStatus === 'in_progress' ? 'Ничего в процессе' : 'Ещё ничего не закончено'}
+      {activeStatus === 'want' ? 'Ничего не запланировано' : activeStatus === 'in_progress' ? 'Ничего в процессе' : 'Ещё ничего не закончено'}
     </div>
   {:else}
     <div class="item-list mt-3">
@@ -364,9 +353,7 @@
             <div class="item-info">
               <div class="item-badges">
                 <span class="item-type-badge">{typeLabel[item.type]}</span>
-                {#if item.is_finished && item.status !== 'done'}
-                  <span class="finished-badge">завершён</span>
-                {/if}
+                {#if item.is_finished && item.status !== 'done'}<span class="finished-badge">завершён</span>{/if}
               </div>
               <span class="item-title">{item.title}</span>
               {#if item.genre}<span class="item-genre">{item.genre}</span>{/if}
@@ -375,33 +362,23 @@
             <button class="del-btn" on:click|stopPropagation={() => deleteItem(item.id)}>×</button>
           </div>
 
-          <!-- Book: progress bar + timer -->
+          <!-- Book: progress + timer -->
           {#if item.type === 'book' && item.status === 'in_progress'}
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <div class="progress-row" on:click|stopPropagation>
               {#if item.current_page && item.total_pages}
-                {@const pct = bookProgress(item)}
-                <div class="progress-bar">
-                  <div class="progress-fill" style="width: {pct}%" />
-                </div>
+                <div class="progress-bar"><div class="progress-fill" style="width:{bookProgress(item)}%" /></div>
               {/if}
               <span class="progress-label">
                 {#if editingPageId === item.id}
                   <!-- svelte-ignore a11y-autofocus -->
-                  <input
-                    class="page-inline-input"
-                    type="number"
-                    autofocus
-                    bind:value={editingPageValue}
+                  <input class="page-inline-input" type="number" autofocus bind:value={editingPageValue}
                     on:blur={() => commitPage(item)}
                     on:keydown={e => { if (e.key === 'Enter') commitPage(item); if (e.key === 'Escape') editingPageId = null }}
-                    on:click|stopPropagation
-                  />
+                    on:click|stopPropagation />
                 {:else}
                   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-                  <span class="page-tappable" on:click={e => startEditPage(item, e)}>
-                    {item.current_page ?? '—'}
-                  </span>
+                  <span class="page-tappable" on:click={e => startEditPage(item, e)}>{item.current_page ?? '—'}</span>
                 {/if}
                 {#if item.total_pages} / {item.total_pages} стр.{:else} стр.{/if}
                 {#if item.current_page && item.total_pages} · {bookProgress(item)}%{/if}
@@ -409,12 +386,7 @@
             </div>
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <div class="timer-row" on:click|stopPropagation>
-              <button
-                class="timer-btn"
-                class:active={timerItemId === item.id}
-                on:click={() => toggleTimer(item)}
-                title={timerItemId === item.id ? 'Стоп' : 'Начать чтение'}
-              >
+              <button class="timer-btn" class:active={timerItemId === item.id} on:click={() => toggleTimer(item)}>
                 {timerItemId === item.id ? '■' : '▶'}
               </button>
               {#if timerItemId === item.id}
@@ -427,7 +399,7 @@
             </div>
           {/if}
 
-          <!-- Series: progress + expandable episode grid -->
+          <!-- Series: expandable episode tracker -->
           {#if item.type === 'series' && item.status === 'in_progress'}
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <div class="series-header" on:click|stopPropagation={() => toggleSeriesExpand(item)}>
@@ -446,61 +418,42 @@
               {@const seasonIdx = selectedSeason[item.id] ?? 0}
               {@const totalSeasons = item.seasons_total ?? 1}
               {@const epsInSeason = getEpsInSeason(item, seasonIdx)}
-              {@const watchedEps = getWatchedEps(item, seasonIdx)}
 
               <!-- Season tabs -->
               <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
               <div class="season-tabs" on:click|stopPropagation>
                 {#each { length: totalSeasons } as _, si}
-                  <button
-                    class="season-tab-btn"
-                    class:active={seasonIdx === si}
-                    on:click={() => selectedSeason = { ...selectedSeason, [item.id]: si }}
-                  >
+                  {@const watched = watchedCountInSeason(item, si)}
+                  {@const total = getEpsInSeason(item, si)}
+                  <button class="season-tab-btn" class:active={seasonIdx === si}
+                    on:click={() => selectedSeason = { ...selectedSeason, [item.id]: si }}>
                     С{si + 1}
-                    {#if getEpsInSeason(item, si) > 0}
-                      <span class="season-tab-count">{getWatchedEps(item, si).length}/{getEpsInSeason(item, si)}</span>
-                    {/if}
+                    {#if total > 0}<span class="season-tab-count">{watched}/{total}</span>{/if}
                   </button>
                 {/each}
               </div>
 
+              <!-- Episode rows OR setup prompt -->
               <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
               <div on:click|stopPropagation>
                 {#if epsInSeason > 0}
-                  <div class="eps-grid">
+                  <div class="eps-list">
                     {#each { length: epsInSeason } as _, ei}
                       {@const epNum = ei + 1}
-                      {@const watched = isEpWatched(item, seasonIdx, epNum)}
-                      <button
-                        class="ep-dot"
-                        class:watched
-                        on:click={() => toggleEpisode(item, seasonIdx, epNum)}
-                        title="Серия {epNum}"
-                      >{epNum}</button>
+                      {@const state = getEpisodeState(item, seasonIdx, epNum)}
+                      <button class="ep-row ep-{state}" on:click={() => setCurrentEpisode(item, seasonIdx, epNum)}>
+                        <span class="ep-label">Серия {epNum}</span>
+                        <span class="ep-toggle ep-toggle-{state}"></span>
+                      </button>
                     {/each}
                   </div>
-                  <div class="eps-progress-text">{watchedEps.length} / {epsInSeason} серий</div>
                 {:else}
                   <div class="eps-setup">
                     <span class="eps-setup-label">Серий в сезоне {seasonIdx + 1}:</span>
-                    <input
-                      class="eps-count-input"
-                      type="number"
-                      inputmode="numeric"
-                      placeholder="10"
+                    <input class="eps-count-input" type="number" inputmode="numeric" placeholder="10"
                       bind:value={epsInputValues[`${item.id}-${seasonIdx}`]}
-                      on:blur={() => {
-                        const v = parseInt(epsInputValues[`${item.id}-${seasonIdx}`])
-                        if (!isNaN(v) && v > 0) setEpsInSeason(item, seasonIdx, v)
-                      }}
-                      on:keydown={e => {
-                        if (e.key === 'Enter') {
-                          const v = parseInt(epsInputValues[`${item.id}-${seasonIdx}`])
-                          if (!isNaN(v) && v > 0) setEpsInSeason(item, seasonIdx, v)
-                          e.currentTarget.blur()
-                        }
-                      }}
+                      on:blur={() => { const v = parseInt(epsInputValues[`${item.id}-${seasonIdx}`]); if (!isNaN(v) && v > 0) setEpsInSeason(item, seasonIdx, v) }}
+                      on:keydown={e => { if (e.key === 'Enter') { const v = parseInt(epsInputValues[`${item.id}-${seasonIdx}`]); if (!isNaN(v) && v > 0) setEpsInSeason(item, seasonIdx, v); e.currentTarget.blur() } }}
                     />
                   </div>
                 {/if}
@@ -520,9 +473,7 @@
           {#if item.rating}
             <div class="item-rating">{'★'.repeat(item.rating)}{'☆'.repeat(5 - item.rating)}</div>
           {/if}
-          {#if item.notes}
-            <p class="item-notes">{item.notes}</p>
-          {/if}
+          {#if item.notes}<p class="item-notes">{item.notes}</p>{/if}
 
           <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
           <div class="item-actions" on:click|stopPropagation>
@@ -549,9 +500,7 @@
       <label class="label">Тип</label>
       <div class="type-tabs">
         {#each ALL_TYPES as t}
-          <button class="type-tab" class:active={fType === t} on:click={() => fType = t}>
-            {typeLabel[t]}
-          </button>
+          <button class="type-tab" class:active={fType === t} on:click={() => fType = t}>{typeLabel[t]}</button>
         {/each}
       </div>
     </div>
@@ -572,7 +521,6 @@
       <input id="m-genre" type="text" bind:value={fGenre} placeholder="Фантастика, Триллер..." />
     </div>
 
-    <!-- Book fields -->
     {#if fType === 'book'}
       <div class="form-row">
         <div class="form-field">
@@ -588,46 +536,57 @@
       </div>
     {/if}
 
-    <!-- Series fields -->
     {#if fType === 'series'}
-      <div class="form-row">
+      <!-- Сезоны + "вышел полностью" в одну строку -->
+      <div class="form-row" style="align-items:flex-end">
         <div class="form-field">
           <label class="label" for="m-seasons">Всего сезонов</label>
           <input id="m-seasons" type="number" bind:value={fSeasonsTotal} placeholder="3" inputmode="numeric" />
         </div>
-      </div>
-      {#if fStatus === 'in_progress'}
-        <div class="form-row">
-          <div class="form-field">
-            <label class="label" for="m-cur-s">Сезон</label>
-            <input id="m-cur-s" type="number" bind:value={fCurrentSeason} placeholder="1" inputmode="numeric" />
-          </div>
-          <div class="form-field">
-            <label class="label" for="m-cur-e">Серия</label>
-            <input id="m-cur-e" type="number" bind:value={fCurrentEpisode} placeholder="5" inputmode="numeric" />
-          </div>
-        </div>
-      {/if}
-
-      {#if fStatus !== 'done'}
-        <div class="form-field toggle-row">
+        <div class="form-field" style="justify-content:flex-end;padding-bottom:0.125rem">
           <label class="toggle-label">
             <input type="checkbox" bind:checked={fSeriesFinished} />
-            <span>Сериал вышел полностью</span>
+            <span>Вышел полностью</span>
           </label>
         </div>
-      {/if}
+      </div>
 
+      <!-- Серий в каждом сезоне — сезонные табы + input -->
       {#if parseInt(fSeasonsTotal) > 0}
         <div class="form-field">
-          <label class="label">Оценки по сезонам</label>
-          {#each { length: parseInt(fSeasonsTotal) } as _, idx}
-            <div class="season-rating-row">
-              <span class="season-rating-label">Сезон {idx + 1}</span>
-              <StarRating value={fSeasonRatings[idx] ?? 0} on:change={e => setSeasonRating(idx, e.detail)} />
-            </div>
-          {/each}
+          <label class="label">Серий в сезонах</label>
+          <div class="season-tabs" style="margin-bottom:0.5rem">
+            {#each { length: parseInt(fSeasonsTotal) } as _, si}
+              <button class="season-tab-btn" class:active={fFormSeason === si} on:click={() => fFormSeason = si}>
+                С{si + 1}
+                {#if fEpisodesPerSeason[si] > 0}
+                  <span class="season-tab-count">{fEpisodesPerSeason[si]}</span>
+                {/if}
+              </button>
+            {/each}
+          </div>
+          <input
+            type="number" inputmode="numeric" placeholder="Сколько серий в сезоне {fFormSeason + 1}?"
+            value={fEpisodesPerSeason[fFormSeason] || ''}
+            on:input={e => {
+              const v = parseInt(e.currentTarget.value)
+              fEpisodesPerSeason[fFormSeason] = isNaN(v) ? 0 : v
+              fEpisodesPerSeason = [...fEpisodesPerSeason]
+            }}
+          />
         </div>
+
+        {#if fStatus === 'done'}
+          <div class="form-field">
+            <label class="label">Оценки по сезонам</label>
+            {#each { length: parseInt(fSeasonsTotal) } as _, idx}
+              <div class="season-rating-row">
+                <span class="season-rating-label">Сезон {idx + 1}</span>
+                <StarRating value={fSeasonRatings[idx] ?? 0} on:change={e => setSeasonRating(idx, e.detail)} />
+              </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
     {/if}
 
@@ -652,10 +611,7 @@
 <style>
   .page-shell { max-width: 480px; margin: 0 auto; padding: 0 1.375rem 6rem; }
 
-  .page-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 1rem 0 0.75rem;
-  }
+  .page-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 0 0.75rem; }
 
   .add-btn {
     background: var(--color-accent); color: white; border: none;
@@ -673,28 +629,16 @@
   .status-tab.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
 
   .count {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.6875rem;
-    background: rgba(255,255,255,0.25);
-    border-radius: 0.375rem;
-    padding: 0 0.25rem;
+    font-family: "JetBrains Mono", monospace; font-size: 0.6875rem;
+    background: rgba(255,255,255,0.25); border-radius: 0.375rem; padding: 0 0.25rem;
   }
   .status-tab:not(.active) .count { background: var(--color-bg); color: var(--color-accent); }
 
-  .type-filter-row {
-    display: flex; gap: 0.375rem; flex-wrap: wrap;
-    margin-top: 0.625rem;
-  }
+  .type-filter-row { display: flex; gap: 0.375rem; flex-wrap: wrap; margin-top: 0.625rem; }
   .filter-chip {
-    padding: 0.25rem 0.625rem;
-    border: 1px solid var(--color-border);
-    border-radius: 1rem;
-    background: var(--color-card);
-    font-size: 0.75rem;
-    color: var(--color-muted);
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition: all 0.15s;
+    padding: 0.25rem 0.625rem; border: 1px solid var(--color-border); border-radius: 1rem;
+    background: var(--color-card); font-size: 0.75rem; color: var(--color-muted);
+    cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.15s;
   }
   .filter-chip.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
 
@@ -703,8 +647,7 @@
   .item-card {
     background: var(--color-card); border: 1px solid var(--color-border);
     border-radius: 1rem; padding: 0.875rem 1rem; cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition: opacity 0.3s, transform 0.3s;
+    -webkit-tap-highlight-color: transparent; transition: opacity 0.3s, transform 0.3s;
   }
   .item-card:active { opacity: 0.8; }
   .item-card.moving { opacity: 0; transform: translateX(30px); pointer-events: none; }
@@ -712,104 +655,87 @@
   .item-top { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.25rem; }
   .item-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .item-badges { display: flex; align-items: center; gap: 0.375rem; }
-  .item-type-badge {
-    font-size: 0.6875rem; color: var(--color-accent);
-    text-transform: uppercase; letter-spacing: 0.05em;
-  }
-  .finished-badge {
-    font-size: 0.6875rem; color: var(--color-muted);
-    border: 1px solid var(--color-border); border-radius: 0.375rem; padding: 0 0.25rem;
-  }
+  .item-type-badge { font-size: 0.6875rem; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.05em; }
+  .finished-badge { font-size: 0.6875rem; color: var(--color-muted); border: 1px solid var(--color-border); border-radius: 0.375rem; padding: 0 0.25rem; }
   .item-title { font-size: 0.9375rem; font-weight: 500; }
   .item-genre { font-size: 0.75rem; color: var(--color-muted); }
   .item-rating { font-size: 0.875rem; color: var(--color-accent); letter-spacing: 1px; margin: 0.25rem 0; }
   .item-notes { font-size: 0.8125rem; color: var(--color-muted); margin: 0.25rem 0 0; }
 
   /* Book progress */
-  .progress-row {
-    display: flex; align-items: center; gap: 0.5rem;
-    margin: 0.375rem 0 0.125rem;
-  }
-  .progress-bar {
-    flex: 1; height: 3px; background: var(--color-border); border-radius: 2px; overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 0.3s;
-  }
+  .progress-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.375rem 0 0.125rem; }
+  .progress-bar { flex: 1; height: 3px; background: var(--color-border); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 0.3s; }
   .progress-label { font-size: 0.75rem; color: var(--color-muted); white-space: nowrap; }
   .page-tappable { cursor: pointer; text-decoration: underline dotted; color: var(--color-accent); }
   .page-inline-input {
     width: 4rem; font-size: 0.75rem; padding: 0.1rem 0.25rem;
     border: 1px solid var(--color-accent); border-radius: 0.25rem;
-    background: var(--color-card); color: var(--color-text);
-    text-align: right; -moz-appearance: textfield;
+    background: var(--color-card); color: var(--color-text); text-align: right; -moz-appearance: textfield;
   }
   .page-inline-input::-webkit-outer-spin-button,
   .page-inline-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
   /* Timer */
-  .timer-row {
-    display: flex; align-items: center; gap: 0.5rem;
-    margin: 0.25rem 0;
-  }
+  .timer-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0; }
   .timer-btn {
-    width: 1.75rem; height: 1.75rem; border-radius: 50%;
-    border: 1.5px solid var(--color-border); background: none;
-    color: var(--color-muted); cursor: pointer; font-size: 0.625rem;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s; -webkit-tap-highlight-color: transparent;
+    width: 1.75rem; height: 1.75rem; border-radius: 50%; border: 1.5px solid var(--color-border);
+    background: none; color: var(--color-muted); cursor: pointer; font-size: 0.625rem;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
   }
   .timer-btn.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
-  .timer-display {
-    font-family: "JetBrains Mono", monospace; font-size: 0.875rem;
-    color: var(--color-accent); font-weight: 500;
-  }
+  .timer-display { font-family: "JetBrains Mono", monospace; font-size: 0.875rem; color: var(--color-accent); font-weight: 500; }
   .reading-total { font-size: 0.75rem; color: var(--color-muted); }
 
   /* Series */
   .series-header {
     display: flex; align-items: center; justify-content: space-between;
-    margin: 0.375rem 0 0.25rem; cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
+    margin: 0.375rem 0 0.25rem; cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
-  .series-progress-text {
-    font-size: 0.8125rem; color: var(--color-accent);
-    font-family: "JetBrains Mono", monospace;
-  }
+  .series-progress-text { font-size: 0.8125rem; color: var(--color-accent); font-family: "JetBrains Mono", monospace; }
   .series-not-started { color: var(--color-muted); font-family: inherit; }
-  .expand-chevron {
-    font-size: 1.125rem; color: var(--color-muted);
-    transition: transform 0.2s; line-height: 1;
-  }
+  .expand-chevron { font-size: 1.125rem; color: var(--color-muted); transition: transform 0.2s; line-height: 1; }
   .expand-chevron.open { transform: rotate(180deg); }
 
   /* Season tabs */
-  .season-tabs {
-    display: flex; gap: 0.375rem; flex-wrap: wrap;
-    margin: 0.25rem 0 0.5rem;
-  }
+  .season-tabs { display: flex; gap: 0.375rem; flex-wrap: wrap; margin: 0.25rem 0 0.5rem; }
   .season-tab-btn {
-    padding: 0.25rem 0.625rem;
-    border: 1px solid var(--color-border); border-radius: 0.5rem;
-    background: none; font-size: 0.75rem; color: var(--color-muted);
-    cursor: pointer; transition: all 0.15s;
-    -webkit-tap-highlight-color: transparent;
+    padding: 0.25rem 0.625rem; border: 1px solid var(--color-border); border-radius: 0.5rem;
+    background: none; font-size: 0.75rem; color: var(--color-muted); cursor: pointer;
+    transition: all 0.15s; -webkit-tap-highlight-color: transparent;
     display: flex; align-items: center; gap: 0.25rem;
   }
   .season-tab-btn.active { background: var(--color-accent); border-color: var(--color-accent); color: white; }
   .season-tab-count { font-size: 0.625rem; opacity: 0.8; }
 
-  /* Episode dots */
-  .eps-grid { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.125rem 0 0.25rem; }
-  .ep-dot {
-    width: 2rem; height: 2rem; border-radius: 50%;
-    border: 1.5px solid var(--color-border); background: none;
-    font-size: 0.625rem; color: var(--color-muted); cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.12s; -webkit-tap-highlight-color: transparent;
+  /* Episode rows — 3 states */
+  .eps-list { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.125rem 0 0.375rem; }
+
+  .ep-row {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; padding: 0.5rem 0.75rem;
+    border-radius: 0.75rem; border: 1px solid var(--color-border);
+    background: none; cursor: pointer; transition: all 0.12s;
+    -webkit-tap-highlight-color: transparent;
   }
-  .ep-dot.watched { background: var(--color-accent); border-color: var(--color-accent); color: white; }
-  .eps-progress-text { font-size: 0.75rem; color: var(--color-muted); margin-bottom: 0.25rem; }
+
+  .ep-watched { background: var(--color-card); opacity: 0.55; }
+  .ep-current { background: var(--color-accent); border-color: var(--color-accent); color: white; }
+  .ep-remaining { background: none; }
+
+  .ep-label { font-size: 0.8125rem; }
+  .ep-watched .ep-label { color: var(--color-muted); }
+  .ep-current .ep-label { color: white; font-weight: 500; }
+  .ep-remaining .ep-label { color: var(--color-text); }
+
+  .ep-toggle {
+    width: 1.125rem; height: 1.125rem; border-radius: 50%; flex-shrink: 0;
+    border: 2px solid currentColor;
+  }
+  .ep-toggle-watched { background: var(--color-muted); border-color: var(--color-muted); }
+  .ep-toggle-current { background: white; border-color: white; }
+  .ep-toggle-remaining { background: none; border-color: var(--color-border); }
 
   /* Episode count setup */
   .eps-setup { display: flex; align-items: center; gap: 0.625rem; margin: 0.25rem 0; }
@@ -824,9 +750,7 @@
   .eps-count-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
   /* Season ratings */
-  .season-ratings-row {
-    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.1rem 0;
-  }
+  .season-ratings-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.1rem 0; }
   .season-rating-chip { font-size: 0.6875rem; color: var(--color-muted); font-family: "JetBrains Mono", monospace; }
 
   .item-actions { margin-top: 0.625rem; display: flex; gap: 0.5rem; }
@@ -838,6 +762,7 @@
 
   .del-btn { background: none; border: none; color: var(--color-muted); font-size: 1.25rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; }
 
+  /* Form */
   .type-tabs { display: flex; background: var(--color-card); border-radius: 0.875rem; padding: 0.25rem; gap: 0.25rem; border: 1px solid var(--color-border); }
   .type-tab { flex: 1; padding: 0.5rem; border: none; border-radius: 0.625rem; font-size: 0.8125rem; background: none; color: var(--color-muted); cursor: pointer; transition: all 0.15s; }
   .type-tab.active { background: var(--color-accent); color: white; }
