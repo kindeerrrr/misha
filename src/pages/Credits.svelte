@@ -95,6 +95,29 @@
     return `${RU_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`
   }
 
+  // Count payment dates remaining from today up to end_date
+  function remainingPaymentsCount(c: Credit): number | null {
+    if (!c.payment_day || !c.end_date) return null
+    const now = new Date()
+    const end = new Date(c.end_date + 'T12:00:00')
+    let count = 0
+    let d = new Date(now.getFullYear(), now.getMonth(), c.payment_day)
+    if (d.getTime() < now.setHours(0,0,0,0)) d = new Date(d.getFullYear(), d.getMonth() + 1, c.payment_day)
+    while (d <= end) {
+      count++
+      d = new Date(d.getFullYear(), d.getMonth() + 1, c.payment_day)
+    }
+    return count
+  }
+
+  // Total to pay including interest = remaining payments × monthly
+  function totalWithInterest(c: Credit): number | null {
+    if (!c.monthly_payment) return null
+    const count = remainingPaymentsCount(c)
+    if (count === null) return null
+    return count * c.monthly_payment
+  }
+
   function paidPct(c: Credit): number {
     if (!c.total_amount) return 0
     return Math.min(100, Math.round(((c.total_amount - c.remaining) / c.total_amount) * 100))
@@ -177,6 +200,10 @@
   $: historyByMonth = groupByMonth(historyPayments)
   $: totalRemaining = credits.reduce((s, c) => s + c.remaining, 0)
   $: totalMonthly = credits.filter(c => c.monthly_payment).reduce((s, c) => s + (c.monthly_payment ?? 0), 0)
+  $: totalWithInterestAll = credits.reduce((s, c) => {
+    const t = totalWithInterest(c)
+    return s + (t !== null ? t : c.remaining)
+  }, 0)
 
   // ── Load ───────────────────────────────────────────────────────────────────
   async function load() {
@@ -334,8 +361,11 @@
       <div class="summary-card">
         <div class="summary-row">
           <div>
-            <span class="summary-label">Общий долг</span>
-            <span class="summary-amount">{totalRemaining.toLocaleString('ru-RU')} ₽</span>
+            <span class="summary-label">Итого к выплате</span>
+            <span class="summary-amount">{totalWithInterestAll.toLocaleString('ru-RU')} ₽</span>
+            {#if totalWithInterestAll !== totalRemaining}
+              <span class="summary-principal">тело долга {totalRemaining.toLocaleString('ru-RU')} ₽</span>
+            {/if}
           </div>
           {#if totalMonthly > 0}
             <div class="summary-monthly">
@@ -352,6 +382,7 @@
           {@const nextDate = nextPaymentDate(credit.payment_day)}
           {@const days = daysUntil(nextDate)}
           {@const forecast = closureForecast(credit)}
+          {@const twi = totalWithInterest(credit)}
           <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
           <div class="credit-card" on:click={() => openDetail(credit)}>
             <div class="credit-top">
@@ -361,7 +392,12 @@
                   <span class="complex-badge">Сплит</span>
                 {/if}
               </div>
-              <span class="credit-remaining">{credit.remaining.toLocaleString('ru-RU')} ₽</span>
+              <div class="credit-amounts">
+                <span class="credit-remaining">{(twi ?? credit.remaining).toLocaleString('ru-RU')} ₽</span>
+                {#if twi !== null && twi !== credit.remaining}
+                  <span class="credit-principal">тело {credit.remaining.toLocaleString('ru-RU')} ₽</span>
+                {/if}
+              </div>
             </div>
 
             <div class="progress-bar">
@@ -402,6 +438,8 @@
   {@const days = daysUntil(nextDate)}
   {@const forecast = closureForecast(activeCredit)}
   {@const spark = sparkline(historyPayments, activeCredit.total_amount)}
+  {@const twi = totalWithInterest(activeCredit)}
+  {@const paymentsLeft = remainingPaymentsCount(activeCredit)}
 
   <div class="page-shell">
     <header class="page-header">
@@ -421,8 +459,14 @@
     <div class="detail-hero">
       <div class="hero-top">
         <div>
-          <span class="detail-remaining-label">Осталось</span>
-          <span class="detail-remaining-amount">{activeCredit.remaining.toLocaleString('ru-RU')} ₽</span>
+          <span class="detail-remaining-label">{twi !== null ? 'К выплате с процентами' : 'Осталось'}</span>
+          <span class="detail-remaining-amount">{(twi ?? activeCredit.remaining).toLocaleString('ru-RU')} ₽</span>
+          {#if twi !== null && twi !== activeCredit.remaining}
+            <span class="detail-principal-sub">
+              тело долга {activeCredit.remaining.toLocaleString('ru-RU')} ₽
+              {#if paymentsLeft !== null} · {paymentsLeft} платежей{/if}
+            </span>
+          {/if}
           <span class="detail-total-sub">из {activeCredit.total_amount.toLocaleString('ru-RU')} ₽ · {pct}% выплачено</span>
         </div>
         {#if spark}
@@ -743,6 +787,7 @@
     color: white; letter-spacing: -0.02em; line-height: 1;
     display: block;
   }
+  .summary-principal { display: block; font-size: 0.75rem; color: rgba(255,255,255,0.55); margin-top: 0.25rem; }
   .summary-monthly { text-align: right; }
   .summary-monthly-val { font-size: 1.125rem; color: rgba(255,255,255,0.9); font-weight: 500; display: block; }
 
@@ -783,7 +828,9 @@
 
   .credit-name-row { display: flex; align-items: center; gap: 0.5rem; flex: 1; }
   .credit-name { font-size: 1rem; font-weight: 500; color: var(--color-text); font-family: "Fraunces", serif; }
-  .credit-remaining { font-size: 1rem; font-weight: 600; color: var(--color-text); font-family: "JetBrains Mono", monospace; flex-shrink: 0; }
+  .credit-amounts { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; gap: 1px; }
+  .credit-remaining { font-size: 1rem; font-weight: 600; color: var(--color-text); font-family: "JetBrains Mono", monospace; }
+  .credit-principal { font-size: 0.6875rem; color: var(--color-muted); }
 
   /* ── Progress ── */
   .progress-bar {
@@ -830,7 +877,8 @@
     font-size: 2.25rem; font-weight: 300;
     color: var(--color-text); letter-spacing: -0.02em; line-height: 1.1; display: block;
   }
-  .detail-total-sub { font-size: 0.8125rem; color: var(--color-muted); display: block; margin-bottom: 0.875rem; }
+  .detail-principal-sub { font-size: 0.8125rem; color: var(--color-muted); display: block; margin-top: 0.125rem; }
+  .detail-total-sub { font-size: 0.8125rem; color: var(--color-muted); display: block; margin-top: 0.125rem; margin-bottom: 0.875rem; }
 
   .detail-meta-row { display: flex; gap: 1.25rem; flex-wrap: wrap; }
   .detail-meta-block { display: flex; flex-direction: column; gap: 2px; }
