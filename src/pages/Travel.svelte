@@ -219,6 +219,11 @@
 
   // ── Doc upload ────────────────────────────────────────────────────────────
   let uploading = false
+  let showDocModal = false
+  let pendingFile: File | null = null
+  let fDocCategory = 'doc'
+  let fDocOwner = ''
+  const QUICK_OWNERS = ['Моё', 'Мужа', 'Жены', 'Общее']
 
   // ── Derived ───────────────────────────────────────────────────────────────
   $: grouped = groupByMonth(trips)
@@ -444,18 +449,29 @@
   // ── Documents ─────────────────────────────────────────────────────────────
   let fileInput: HTMLInputElement
 
-  async function handleFileSelect(e: Event) {
+  function handleFileSelect(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0]
     if (!file || !activeTrip) return
+    pendingFile = file
+    fDocCategory = docFilter ?? 'doc'
+    fDocOwner = ''
+    showDocModal = true
+    if (fileInput) fileInput.value = ''
+  }
+
+  async function confirmDocUpload() {
+    if (!pendingFile || !activeTrip) return
     uploading = true
-    const ext = file.name.split('.').pop() ?? ''
+    showDocModal = false
+    const ext = pendingFile.name.split('.').pop() ?? ''
     const path = `${$user!.id}/${activeTrip.id}/${Date.now()}.${ext}`
-    const url = await uploadFile('trip-docs', path, file)
+    const url = await uploadFile('trip-docs', path, pendingFile)
     if (url) {
-      const fileType: 'photo' | 'pdf' = file.type.startsWith('image/') ? 'photo' : 'pdf'
+      const fileType: 'photo' | 'pdf' = pendingFile.type.startsWith('image/') ? 'photo' : 'pdf'
+      const owner = fDocOwner.trim() || null
       const { data } = await supabase.from('trip_documents').insert({
-        user_id: $user!.id, trip_id: activeTrip.id, name: file.name, file_url: url,
-        file_type: fileType, category: docFilter ?? 'doc',
+        user_id: $user!.id, trip_id: activeTrip.id, name: pendingFile.name,
+        file_url: url, file_type: fileType, category: fDocCategory, owner,
       }).select().single()
       if (data) documents = [...documents, data]
       showToast('Файл загружен', 'success')
@@ -463,7 +479,7 @@
       showToast('Ошибка загрузки', 'error')
     }
     uploading = false
-    if (fileInput) fileInput.value = ''
+    pendingFile = null
   }
 
   async function deleteDoc(id: string) {
@@ -671,6 +687,9 @@
               <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
               <img src={doc.file_url} alt={doc.name} on:click={() => lightboxUrl = doc.file_url} />
               <button class="photo-delete" on:click={() => deleteDoc(doc.id)} aria-label="Удалить">×</button>
+              {#if doc.owner}
+                <span class="owner-badge">{doc.owner}</span>
+              {/if}
             </div>
           {/each}
         </div>
@@ -682,17 +701,14 @@
           {#each pdfDocs as doc}
             <div class="pdf-card">
               <div class="pdf-icon">{@html icons.file_text}</div>
-              <a class="pdf-name" href={doc.file_url} target="_blank" rel="noopener">{doc.name}</a>
+              <div class="pdf-info">
+                <a class="pdf-name" href={doc.file_url} target="_blank" rel="noopener">{doc.name}</a>
+                {#if doc.owner}<span class="pdf-owner">{doc.owner}</span>{/if}
+              </div>
               <button class="delete-btn-sm" on:click={() => deleteDoc(doc.id)} aria-label="Удалить">×</button>
             </div>
           {/each}
         </div>
-      {/if}
-
-      {#if docFilter}
-        <p class="upload-hint">Файл загрузится в «{DOC_CATEGORIES.find(c => c.id === docFilter)?.label}»</p>
-      {:else}
-        <p class="upload-hint">Выбери категорию выше, чтобы загрузить в нужный раздел</p>
       {/if}
     {/if}
   </div>
@@ -848,6 +864,39 @@
       <button class="btn-danger" on:click={() => deleteItem(itemToDelete.id)}>Удалить</button>
     {/if}
     <button class="btn-primary" on:click={saveItem}>{editingItem ? 'Сохранить' : 'Добавить'}</button>
+  </div>
+</Modal>
+
+<!-- Doc upload modal -->
+<Modal title="Загрузить файл" open={showDocModal} on:close={() => { showDocModal = false; pendingFile = null }}>
+  {#if pendingFile}
+    <p class="doc-filename">📎 {pendingFile.name}</p>
+  {/if}
+  <div class="form-group">
+    <label class="form-label">Категория</label>
+    <div class="cat-row">
+      {#each DOC_CATEGORIES as cat}
+        <button class="cat-chip" class:active={fDocCategory === cat.id} on:click={() => fDocCategory = cat.id}>{cat.label}</button>
+      {/each}
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Чей документ</label>
+    <div class="cat-row" style="margin-bottom:0.5rem">
+      {#each QUICK_OWNERS as o}
+        <button
+          class="cat-chip"
+          class:active={fDocOwner === (o === 'Моё' ? '' : o)}
+          on:click={() => fDocOwner = o === 'Моё' ? '' : o}
+        >{o}</button>
+      {/each}
+    </div>
+    <input class="form-input" bind:value={fDocOwner} placeholder="Или напиши имя вручную…" />
+  </div>
+  <div class="form-actions">
+    <button class="btn-primary" class:uploading on:click={confirmDocUpload}>
+      {uploading ? 'Загружаю…' : 'Загрузить'}
+    </button>
   </div>
 </Modal>
 
@@ -1227,11 +1276,30 @@
 
   .muted-hint { color: var(--color-muted); font-size: 0.875rem; text-align: center; margin-top: 2rem; }
 
-  .upload-hint {
-    text-align: center;
-    font-size: 0.75rem;
+  .owner-badge {
+    position: absolute;
+    bottom: 0.25rem;
+    left: 0.25rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: white;
+    background: rgba(0,0,0,0.55);
+    border-radius: 0.375rem;
+    padding: 0.125rem 0.375rem;
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+  }
+
+  .pdf-info { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+  .pdf-owner { font-size: 0.6875rem; color: var(--color-accent); }
+
+  .doc-filename {
+    font-size: 0.8125rem;
     color: var(--color-muted);
-    margin: 1rem 0 0.5rem;
+    margin: 0 0 1rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* ── FAB ── */
