@@ -30,15 +30,15 @@
 {:else}
   <OfflineBanner />
   <div class="app-shell">
-    <div class:hidden={$activeTab !== 'dashboard'}>{#if visited.has('dashboard')}<Dashboard />{/if}</div>
-    <div class:hidden={$activeTab !== 'health'}>{#if visited.has('health')}<Health />{/if}</div>
-    <div class:hidden={$activeTab !== 'emotions'}>{#if visited.has('emotions')}<Emotions />{/if}</div>
-    <div class:hidden={$activeTab !== 'finances'}>{#if visited.has('finances')}<Finances />{/if}</div>
-    <div class:hidden={$activeTab !== 'habits'}>{#if visited.has('habits')}<Habits />{/if}</div>
-    <div class:hidden={$activeTab !== 'media'}>{#if visited.has('media')}<Media />{/if}</div>
-    <div class:hidden={$activeTab !== 'cat'}>{#if visited.has('cat')}<Cat />{/if}</div>
-    <div class:hidden={$activeTab !== 'settings'}>{#if visited.has('settings')}<Settings />{/if}</div>
-    <div class:hidden={$activeTab !== 'hub'}>{#if visited.has('hub')}<Hub />{/if}</div>
+    <div class:hidden={$activeTab !== 'dashboard'}>{#if visited['dashboard']}<Dashboard />{/if}</div>
+    <div class:hidden={$activeTab !== 'health'}>{#if visited['health']}<Health />{/if}</div>
+    <div class:hidden={$activeTab !== 'emotions'}>{#if visited['emotions']}<Emotions />{/if}</div>
+    <div class:hidden={$activeTab !== 'finances'}>{#if visited['finances']}<Finances />{/if}</div>
+    <div class:hidden={$activeTab !== 'habits'}>{#if visited['habits']}<Habits />{/if}</div>
+    <div class:hidden={$activeTab !== 'media'}>{#if visited['media']}<Media />{/if}</div>
+    <div class:hidden={$activeTab !== 'cat'}>{#if visited['cat']}<Cat />{/if}</div>
+    <div class:hidden={$activeTab !== 'settings'}>{#if visited['settings']}<Settings />{/if}</div>
+    <div class:hidden={$activeTab !== 'hub'}>{#if visited['hub']}<Hub />{/if}</div>
   </div>
   <BottomNav />
   <Toast />
