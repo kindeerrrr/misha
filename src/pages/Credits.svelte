@@ -133,6 +133,11 @@
   }
 
   function paidPct(c: Credit): number {
+    if (c.is_complex) {
+      const total = complexTotalSum(c.id)
+      if (total <= 0) return 0
+      return Math.min(100, Math.round((complexPaidSum(c.id) / total) * 100))
+    }
     if (!c.total_amount) return 0
     return Math.min(100, Math.round(((c.total_amount - c.remaining) / c.total_amount) * 100))
   }
@@ -231,6 +236,16 @@
     if (upcoming.length === 0) return 0
     const nearestMonth = upcoming[0].date.slice(0, 7)
     return upcoming.filter(p => p.date.slice(0, 7) === nearestMonth).reduce((s, p) => s + p.amount, 0)
+  }
+
+  // For complex credits: total = sum of ALL payments (paid + unpaid)
+  function complexTotalSum(creditId: string): number {
+    return payments.filter(p => p.credit_id === creditId).reduce((s, p) => s + p.amount, 0)
+  }
+
+  // For complex credits: paid = sum of paid payments
+  function complexPaidSum(creditId: string): number {
+    return payments.filter(p => p.credit_id === creditId && p.paid).reduce((s, p) => s + p.amount, 0)
   }
 
   $: totalRemaining = credits.reduce((s, c) => s + c.remaining, 0)
@@ -676,6 +691,7 @@
           {@const forecast = closureForecast(credit)}
           {@const twi = credit.is_complex ? null : totalWithInterest(credit)}
           {@const cMonthly = credit.is_complex ? complexMonthlySum(credit.id) : 0}
+          {@const cTotal = credit.is_complex ? complexTotalSum(credit.id) : credit.total_amount}
           <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
           <div class="credit-card" on:click={() => openDetail(credit)}>
             <div class="credit-top">
@@ -698,7 +714,7 @@
             </div>
             <div class="progress-labels">
               <span>{pct}% выплачено</span>
-              <span>из {credit.total_amount.toLocaleString('ru-RU')} ₽</span>
+              <span>из {cTotal.toLocaleString('ru-RU')} ₽</span>
             </div>
 
             <div class="credit-meta">
@@ -732,10 +748,11 @@
   {@const nextDate = activeCredit.is_complex ? complexNextDate(activeCredit.id) : nextPaymentDate(activeCredit.payment_day)}
   {@const days = daysUntil(nextDate)}
   {@const forecast = closureForecast(activeCredit)}
-  {@const spark = sparkline(historyPayments, activeCredit.total_amount)}
+  {@const spark = sparkline(historyPayments, detailTotal)}
   {@const twi = activeCredit.is_complex ? null : totalWithInterest(activeCredit)}
   {@const paymentsLeft = remainingPaymentsCount(activeCredit)}
   {@const detailMonthly = activeCredit.is_complex ? complexMonthlySum(activeCredit.id) : (activeCredit.monthly_payment ?? 0)}
+  {@const detailTotal = activeCredit.is_complex ? complexTotalSum(activeCredit.id) : activeCredit.total_amount}
 
   <div class="page-shell">
     <header class="page-header">
@@ -763,7 +780,7 @@
               {#if paymentsLeft !== null} · {paymentsLeft} платежей{/if}
             </span>
           {/if}
-          <span class="detail-total-sub">из {activeCredit.total_amount.toLocaleString('ru-RU')} ₽ · {pct}% выплачено</span>
+          <span class="detail-total-sub">из {detailTotal.toLocaleString('ru-RU')} ₽ · {pct}% выплачено</span>
         </div>
         {#if spark}
           <div class="sparkline" style="color:var(--color-accent)">{@html spark}</div>
