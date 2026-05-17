@@ -314,7 +314,7 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    margin: 0.75rem 0 0;
+    margin: 1.25rem 0 0.75rem;
     color: var(--color-muted);
     font-size: 0.75rem;
   }
