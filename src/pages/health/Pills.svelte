@@ -44,9 +44,46 @@
   $: if (!loading && selectedDate) loadLogs(selectedDate)
 
   $: takenMedIds = new Set(logs.filter(l => !l.skipped).map(l => l.medication_id))
-  function isTaken(med: Medication) { return takenMedIds.has(med.id) }
 
   const togglingMeds = new Set<string>()
+
+  // Edit state
+  let showEditModal = false
+  let editingMed: Medication | null = null
+
+  function openEdit(med: Medication) {
+    editingMed = med
+    newName = med.name
+    newFrequency = med.frequency
+    newTime = med.time_of_day ?? 'evening'
+    newCriticality = med.criticality
+    newStatus = med.status
+    newNotes = med.notes ?? ''
+    showEditModal = true
+  }
+
+  async function saveEdit() {
+    if (!$user || !editingMed || !newName.trim()) return
+    saving = true
+    const updates = {
+      name: newName.trim(), frequency: newFrequency,
+      time_of_day: newTime, criticality: newCriticality,
+      status: newStatus, notes: newNotes || null,
+    }
+    await supabase.from('medications').update(updates).eq('id', editingMed.id)
+    medications = medications.map(m => m.id === editingMed!.id ? { ...m, ...updates } : m)
+    showEditModal = false
+    editingMed = null
+    resetForm()
+    saving = false
+  }
+
+  async function deleteMedConfirm() {
+    if (!editingMed) return
+    await deleteMed(editingMed.id)
+    showEditModal = false
+    editingMed = null
+  }
 
   async function toggleMed(med: Medication) {
     if (!$user || togglingMeds.has(med.id)) return
@@ -143,13 +180,14 @@
   {:else}
     <div class="med-list">
       {#each medications.filter(m => m.status === 'active') as med}
+        {@const taken = logs.some(l => !l.skipped && l.medication_id === med.id)}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <div
           class="med-card"
-          class:taken={isTaken(med)}
+          class:taken
           on:click={() => toggleMed(med)}
         >
-          <div class="med-check">{isTaken(med) ? '✓' : ''}</div>
+          <div class="med-check">{taken ? '✓' : ''}</div>
           <div class="med-info">
             <span class="med-name">{med.name}</span>
             <span class="med-freq">{freqLabel[med.frequency]} · {med.time_of_day ?? ''}</span>
@@ -157,6 +195,7 @@
           <div class="med-crit" style="color: {critColors[med.criticality]}">
             {med.criticality === 'high' ? '!' : ''}
           </div>
+          <button class="edit-icon-btn" on:click|stopPropagation={() => openEdit(med)}>✏</button>
         </div>
       {/each}
     </div>
@@ -172,6 +211,7 @@
             <span class="med-name muted">{med.name}</span>
             <span class="med-freq">{med.status === 'planned' ? 'Планируется' : 'Пауза'} · {freqLabel[med.frequency]}</span>
           </div>
+          <button class="edit-icon-btn" on:click={() => openEdit(med)}>✏</button>
           <button class="activate-btn" on:click={() => toggleStatus(med)}>
             {med.status === 'planned' ? 'Начать' : 'Возобновить'}
           </button>
@@ -247,6 +287,74 @@
 
     <button class="btn-primary mt-2" on:click={addMedication} disabled={saving || !newName.trim()}>
       {saving ? 'Сохраняю...' : 'Добавить'}
+    </button>
+  </div>
+</Modal>
+
+<!-- Edit modal -->
+<Modal title="Редактировать препарат" open={showEditModal} on:close={() => { showEditModal = false; editingMed = null; resetForm() }}>
+  <div class="form-stack">
+    <div class="form-field">
+      <label class="label" for="edit-med-name">Название</label>
+      <input id="edit-med-name" type="text" bind:value={newName} placeholder="Название препарата" />
+    </div>
+
+    <div class="form-field">
+      <label class="label">Частота</label>
+      <div class="radio-group">
+        {#each [['daily','Ежедневно'],['twice_daily','2×/день'],['weekdays','По будням'],['weekly','Раз в неделю']] as [val, lbl]}
+          <label class="radio-pill" class:selected={newFrequency === val}>
+            <input type="radio" bind:group={newFrequency} value={val} />
+            {lbl}
+          </label>
+        {/each}
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label class="label" for="edit-med-time">Время приёма</label>
+      <select id="edit-med-time" bind:value={newTime}>
+        <option value="morning">Утром</option>
+        <option value="afternoon">Днём</option>
+        <option value="evening">Вечером</option>
+        <option value="with_food">С едой</option>
+      </select>
+    </div>
+
+    <div class="form-field">
+      <label class="label">Критичность</label>
+      <div class="radio-group">
+        {#each [['high','! Высокая'],['medium','Средняя'],['low','Низкая']] as [val, lbl]}
+          <label class="radio-pill" class:selected={newCriticality === val}>
+            <input type="radio" bind:group={newCriticality} value={val} />
+            {lbl}
+          </label>
+        {/each}
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label class="label">Статус</label>
+      <div class="radio-group">
+        {#each [['active','Активен'],['planned','Планируется'],['paused','Пауза']] as [val, lbl]}
+          <label class="radio-pill" class:selected={newStatus === val}>
+            <input type="radio" bind:group={newStatus} value={val} />
+            {lbl}
+          </label>
+        {/each}
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label class="label" for="edit-med-notes">Заметка (опционально)</label>
+      <textarea id="edit-med-notes" bind:value={newNotes} rows="2" placeholder="Например, принимать за 30 мин до еды" />
+    </div>
+
+    <button class="btn-primary mt-2" on:click={saveEdit} disabled={saving || !newName.trim()}>
+      {saving ? 'Сохраняю...' : 'Сохранить'}
+    </button>
+    <button class="btn-danger mt-1" on:click={deleteMedConfirm}>
+      Удалить препарат
     </button>
   </div>
 </Modal>
@@ -376,8 +484,34 @@
 
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
+  .edit-icon-btn {
+    background: none;
+    border: none;
+    padding: 0.25rem 0.375rem;
+    font-size: 0.875rem;
+    opacity: 0.4;
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+    color: inherit;
+  }
+  .edit-icon-btn:active { opacity: 1; }
+
+  .btn-danger {
+    width: 100%;
+    padding: 0.75rem;
+    background: none;
+    border: 1px solid var(--color-danger, #e05252);
+    color: var(--color-danger, #e05252);
+    border-radius: 0.875rem;
+    font-size: 0.9375rem;
+    cursor: pointer;
+  }
+
   .muted { color: var(--color-muted); }
   .mt-4 { margin-top: 1rem; }
   .mt-2 { margin-top: 0.5rem; }
+  .mt-1 { margin-top: 0.25rem; }
   .mb-2 { margin-bottom: 0.5rem; }
 </style>

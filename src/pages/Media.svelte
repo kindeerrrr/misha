@@ -429,7 +429,7 @@
                   {@const total = getEpsInSeason(item, si)}
                   <button class="season-tab-btn" class:active={seasonIdx === si}
                     on:click={() => selectedSeason = { ...selectedSeason, [item.id]: si }}>
-                    С{si + 1}
+                    Сезон {si + 1}
                     {#if total > 0}<span class="season-tab-count">{watched}/{total}</span>{/if}
                   </button>
                 {/each}
@@ -571,7 +571,7 @@
           <div class="season-tabs" style="margin-bottom:0.5rem">
             {#each { length: parseInt(fSeasonsTotal) } as _, si}
               <button class="season-tab-btn" class:active={fFormSeason === si} on:click={() => fFormSeason = si}>
-                С{si + 1}
+                Сезон {si + 1}
                 {#if fEpisodesPerSeason[si] > 0}
                   <span class="season-tab-count">{fEpisodesPerSeason[si]}</span>
                 {/if}

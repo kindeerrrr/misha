@@ -1,3 +1,26 @@
 [build]
   command = "npm run build"
   publish = "dist"
+
+# Service worker — never cache, so updates are instant
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/workbox-*.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# HTML — always revalidate
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# Hashed assets — cache forever (hash changes on every build)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

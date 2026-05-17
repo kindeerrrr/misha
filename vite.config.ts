@@ -3,7 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: '/misha/',
+  base: '/',
   plugins: [
     svelte(),
     VitePWA({
@@ -17,7 +17,7 @@ export default defineConfig({
         background_color: '#FAF5EE',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/misha/',
+        start_url: '/',
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },

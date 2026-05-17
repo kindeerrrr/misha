@@ -83,9 +83,7 @@
     }
   }
 
-  function isTaken(med: Medication) {
-    return pillLogs.some(l => l.medication_id === med.id && !l.skipped)
-  }
+  $: takenMedIds = new Set(pillLogs.filter(l => !l.skipped).map(l => l.medication_id))
 
   function formatSleep(log: SleepLog | null): string {
     if (!log || !log.duration_minutes) return '—'
@@ -168,10 +166,10 @@
               <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
               <div
                 class="check-pill"
-                class:checked={isTaken(med)}
+                class:checked={takenMedIds.has(med.id)}
                 on:click|stopPropagation={() => toggleMed(med)}
               >
-                <span class="check-box">{isTaken(med) ? '✓' : ''}</span>
+                <span class="check-box">{takenMedIds.has(med.id) ? '✓' : ''}</span>
                 <span class="pill-name">{med.name}</span>
               </div>
             {/each}
