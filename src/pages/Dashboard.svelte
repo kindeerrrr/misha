@@ -6,7 +6,7 @@
   import { navigate } from '../stores/nav'
   import { avatar, avatarSrc } from '../stores/avatar'
   import { showToast } from '../stores/toast'
-  import type { Medication, MedicationLog, SleepLog, EmotionEntry } from '../lib/types'
+  import type { Medication, MedicationLog, SleepLog, EmotionEntry, NavTab } from '../lib/types'
 
   let medications: Medication[] = []
   let pillLogs: MedicationLog[] = []
@@ -16,7 +16,7 @@
   let weekWorkouts = 0
   let lastWeight: number | null = null
   let prevWeight: number | null = null
-  let upcomingEvents: { icon: string; title: string; date: string; tab: string }[] = []
+  let upcomingEvents: { icon: string; title: string; date: string; tab: NavTab }[] = []
   let loading = true
 
   const todayDate = today()
@@ -260,7 +260,7 @@
           <div class="events-list">
             {#each upcomingEvents as ev}
               <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-              <div class="event-row tap-target" on:click={() => navigate(ev.tab as any)}>
+              <div class="event-row tap-target" on:click={() => navigate(ev.tab)}>
                 <span class="event-icon">{ev.icon}</span>
                 <span class="event-title">{ev.title}</span>
                 <span class="event-date">{ev.date}</span>
