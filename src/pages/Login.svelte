@@ -1,7 +1,7 @@
 <script lang="ts">
   import { signInWithPassword, signInWithMagicLink } from '../stores/user'
   import { avatar, avatarSrc } from '../stores/avatar'
-  import { updateProfile } from '../stores/profile'
+  import { updateProfileById } from '../stores/profile'
   import { supabase } from '../lib/supabase'
 
   type Mode = 'password' | 'magic' | 'register'
@@ -25,7 +25,7 @@
       const { data, error: err } = await supabase.auth.signUp({ email, password })
       if (err) { error = err.message; loading = false; return }
       if (displayName.trim() && data.user) {
-        await updateProfile({ display_name: displayName.trim() })
+        await updateProfileById(data.user.id, { display_name: displayName.trim() })
       }
       loading = false
       return

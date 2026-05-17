@@ -396,5 +396,5 @@ export interface CreditPayment {
 
 export type Theme = 'latte' | 'sage' | 'light' | 'dark'
 export type AvatarVariant = 'sage' | 'pink'
-export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'habits' | 'cat' | 'media' | 'settings' | 'hub' | 'travel' | 'credits'
+export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'habits' | 'cat' | 'media' | 'settings' | 'hub' | 'travel' | 'credits' | 'food'
 export type HealthTab = 'hub' | 'pills' | 'sleep' | 'measurements' | 'workouts' | 'doctors' | 'research' | 'checkups'

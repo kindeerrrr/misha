@@ -16,6 +16,7 @@
   import Hub from './pages/Hub.svelte'
   import Travel from './pages/Travel.svelte'
   import Credits from './pages/Credits.svelte'
+  import Food from './pages/Food.svelte'
   import Toast from './components/ui/Toast.svelte'
   import type { NavTab } from './lib/types'
 
@@ -44,6 +45,7 @@
     <div class:hidden={$activeTab !== 'hub'}>{#if visited['hub']}<Hub />{/if}</div>
     <div class:hidden={$activeTab !== 'travel'}>{#if visited['travel']}<Travel />{/if}</div>
     <div class:hidden={$activeTab !== 'credits'}>{#if visited['credits']}<Credits />{/if}</div>
+    <div class:hidden={$activeTab !== 'food'}>{#if visited['food']}<Food />{/if}</div>
   </div>
   <BottomNav />
   <Toast />

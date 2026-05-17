@@ -16,10 +16,14 @@ export async function loadProfile(userId: string) {
 export async function updateProfile(updates: { display_name?: string; username?: string }) {
   const current = get(profile)
   if (!current) return { error: new Error('No profile') }
+  return updateProfileById(current.id, updates)
+}
+
+export async function updateProfileById(userId: string, updates: { display_name?: string; username?: string }) {
   const { data, error } = await supabase
     .from('profiles')
     .update(updates)
-    .eq('id', current.id)
+    .eq('id', userId)
     .select()
     .single()
   if (data) profile.set(data)

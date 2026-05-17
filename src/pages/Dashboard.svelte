@@ -4,20 +4,25 @@
   import { user } from '../stores/user'
   import { profile, getFirstName } from '../stores/profile'
   import { navigate } from '../stores/nav'
-  import DateNav from '../components/ui/DateNav.svelte'
-  import type { Medication, MedicationLog, SleepLog, EmotionEntry, DayReport } from '../lib/types'
+  import { avatar, avatarSrc } from '../stores/avatar'
+  import { showToast } from '../stores/toast'
+  import type { Medication, MedicationLog, SleepLog, EmotionEntry } from '../lib/types'
 
   let medications: Medication[] = []
   let pillLogs: MedicationLog[] = []
   let sleepLog: SleepLog | null = null
   let emotions: EmotionEntry[] = []
-  let dayReport: DayReport | null = null
   let weekExpenses = 0
+  let weekWorkouts = 0
+  let lastWeight: number | null = null
+  let prevWeight: number | null = null
+  let upcomingEvents: { icon: string; title: string; date: string; tab: string }[] = []
   let loading = true
 
   const todayDate = today()
-  let selectedDate = todayDate
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const in30d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const in14d = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const greeting = (() => {
     const h = new Date().getHours()
@@ -27,77 +32,97 @@
     return 'Добрый вечер'
   })()
 
-  async function loadDayData(date: string) {
+  const MOOD_EMOJIS = ['😔', '😕', '😐', '🙂', '😄']
+
+  async function logMood(emoji: string) {
     if (!$user) return
-    const uid = $user.id
-    const [logsRes, sleepRes, emotRes, drRes] = await Promise.all([
-      supabase.from('medication_logs').select('*').eq('user_id', uid).eq('date', date),
-      supabase.from('sleep_logs').select('*').eq('user_id', uid).eq('date', date).maybeSingle(),
-      supabase.from('emotion_entries').select('*').eq('user_id', uid).eq('date', date).order('recorded_at', { ascending: false }),
-      supabase.from('day_reports').select('*').eq('user_id', uid).eq('date', date).maybeSingle(),
-    ])
-    pillLogs = logsRes.data ?? []
-    sleepLog = sleepRes.data
-    emotions = emotRes.data ?? []
-    dayReport = drRes.data
+    await supabase.from('emotion_entries').insert({
+      user_id: $user.id,
+      emoji,
+      date: todayDate,
+      recorded_at: new Date().toISOString(),
+    })
+    emotions = [...emotions, { id: '', user_id: $user.id, emoji, date: todayDate, recorded_at: new Date().toISOString(), note: null, created_at: new Date().toISOString() }]
+  }
+
+  function formatDateRu(iso: string): string {
+    const d = new Date(iso + 'T00:00:00')
+    return d.toLocaleDateString('ru', { day: 'numeric', month: 'short' })
   }
 
   async function load() {
     if (!$user) return
     const uid = $user.id
-    const [medsRes, expRes] = await Promise.all([
+
+    const [
+      medsRes, logsRes, sleepRes, emotRes,
+      expRes, workoutsRes,
+      weightRes, weightPrevRes,
+      checkupsRes, creditsRes, tripsRes
+    ] = await Promise.all([
       supabase.from('medications').select('*').eq('user_id', uid).eq('status', 'active'),
+      supabase.from('medication_logs').select('*').eq('user_id', uid).eq('date', todayDate),
+      supabase.from('sleep_logs').select('*').eq('user_id', uid).eq('date', todayDate).maybeSingle(),
+      supabase.from('emotion_entries').select('*').eq('user_id', uid).eq('date', todayDate).order('recorded_at', { ascending: false }),
       supabase.from('expenses').select('amount, tx_type').eq('user_id', uid).gte('date', weekAgo),
+      supabase.from('workout_logs').select('id').eq('user_id', uid).gte('date', weekAgo),
+      supabase.from('daily_weights').select('weight_kg, date').eq('user_id', uid).order('date', { ascending: false }).limit(1),
+      supabase.from('daily_weights').select('weight_kg, date').eq('user_id', uid).lte('date', weekAgo).order('date', { ascending: false }).limit(1),
+      supabase.from('annual_checkups').select('name, next_due_at').eq('user_id', uid).lte('next_due_at', in30d).gte('next_due_at', todayDate).order('next_due_at').limit(3),
+      supabase.from('credit_payments').select('date, amount, notes').eq('user_id', uid).eq('paid', false).lte('date', in14d).gte('date', todayDate).order('date').limit(3),
+      supabase.from('trips').select('title, start_date').eq('user_id', uid).lte('start_date', in30d).gte('start_date', todayDate).order('start_date').limit(3),
     ])
+
     medications = medsRes.data ?? []
+    pillLogs = logsRes.data ?? []
+    sleepLog = sleepRes.data
+    emotions = emotRes.data ?? []
     weekExpenses = (expRes.data ?? [])
-      .filter((r: {tx_type?: string}) => !r.tx_type || r.tx_type === 'expense')
-      .reduce((s: number, r: {amount: number}) => s + r.amount, 0)
-    await loadDayData(selectedDate)
+      .filter((r: { tx_type?: string }) => !r.tx_type || r.tx_type === 'expense')
+      .reduce((s: number, r: { amount: number }) => s + r.amount, 0)
+    weekWorkouts = (workoutsRes.data ?? []).length
+    lastWeight = weightRes.data?.[0]?.weight_kg ?? null
+    prevWeight = weightPrevRes.data?.[0]?.weight_kg ?? null
+
+    const events: typeof upcomingEvents = []
+    for (const c of (checkupsRes.data ?? [])) {
+      events.push({ icon: '🩺', title: c.name, date: formatDateRu(c.next_due_at), tab: 'health' })
+    }
+    for (const p of (creditsRes.data ?? [])) {
+      events.push({ icon: '💳', title: p.notes ?? 'Платёж по кредиту', date: formatDateRu(p.date), tab: 'credits' })
+    }
+    for (const t of (tripsRes.data ?? [])) {
+      events.push({ icon: '✈️', title: t.title, date: formatDateRu(t.start_date), tab: 'travel' })
+    }
+    events.sort((a, b) => a.date.localeCompare(b.date))
+    upcomingEvents = events.slice(0, 4)
+
     loading = false
   }
 
-  $: if (!loading && selectedDate) loadDayData(selectedDate)
-
-  const togglingMeds = new Set<string>()
-
-  async function toggleMed(med: Medication) {
-    if (!$user || togglingMeds.has(med.id)) return
-    togglingMeds.add(med.id)
-    try {
-      const existing = pillLogs.find(l => l.medication_id === med.id && !l.skipped)
-      if (existing) {
-        await supabase.from('medication_logs').delete().eq('id', existing.id)
-        pillLogs = pillLogs.filter(l => l.id !== existing.id)
-      } else {
-        const { data } = await supabase.from('medication_logs').insert({
-          user_id: $user.id,
-          medication_id: med.id,
-          taken_at: new Date().toISOString(),
-          skipped: false,
-          date: selectedDate,
-        }).select().single()
-        if (data) pillLogs = [...pillLogs, data]
-      }
-    } finally {
-      togglingMeds.delete(med.id)
-    }
-  }
-
   $: takenMedIds = new Set(pillLogs.filter(l => !l.skipped).map(l => l.medication_id))
+  $: takenCount = takenMedIds.size
+  $: nextMed = medications.find(m => !takenMedIds.has(m.id))
 
   function formatSleep(log: SleepLog | null): string {
-    if (!log || !log.duration_minutes) return '—'
+    if (!log?.duration_minutes) return '—'
     const h = Math.floor(log.duration_minutes / 60)
     const m = log.duration_minutes % 60
     return m > 0 ? `${h}ч ${m}м` : `${h}ч`
   }
 
-  function formatSleepShort(log: SleepLog | null): string {
-    if (!log || !log.duration_minutes) return '—'
-    const h = Math.floor(log.duration_minutes / 60)
-    const m = log.duration_minutes % 60
-    return m > 0 ? `${h}ч${m}` : `${h}ч`
+  function sleepStars(log: SleepLog | null): string {
+    if (!log?.quality) return ''
+    return '★'.repeat(log.quality) + '☆'.repeat(5 - log.quality)
+  }
+
+  function weightDelta(last: number | null, prev: number | null): string {
+    if (!last) return '—'
+    if (!prev) return `${last} кг`
+    const d = last - prev
+    if (Math.abs(d) < 0.05) return `${last} кг`
+    const sign = d > 0 ? '↑' : '↓'
+    return `${last} кг ${sign}${Math.abs(d).toFixed(1)}`
   }
 
   onMount(load)
@@ -106,126 +131,172 @@
 <div class="page-shell">
   <!-- Header -->
   <header class="dash-header">
-    <div>
+    <div class="header-left">
       <p class="greeting-label">{greeting}{getFirstName($profile) ? `, ${getFirstName($profile)}` : ''}</p>
-      <h1 class="section-title">Как дела?</h1>
+      <h1 class="dash-title">Как дела?</h1>
     </div>
-    <div class="header-date number-display">
-      {new Date().toLocaleDateString('ru', { day: 'numeric', month: 'short' })}
+    <div class="header-right">
+      <span class="header-date">
+        {new Date().toLocaleDateString('ru', { day: 'numeric', month: 'short' })}
+      </span>
+      <img src={avatarSrc($avatar)} alt="misha" class="header-avatar" />
     </div>
   </header>
 
   {#if loading}
     <div class="skeleton-list">
-      {#each [1,2,3] as _}
+      {#each [1,2,3,4] as _}
         <div class="skeleton-card" />
       {/each}
     </div>
   {:else}
-    <!-- Block 1: Day section with global date nav -->
+    <!-- Section 1: 2×2 compact grid -->
     <section class="dash-section">
-      <div class="section-header">
-        <DateNav date={selectedDate} on:change={e => selectedDate = e.detail} />
-      </div>
+      <div class="compact-grid">
 
-      <!-- Hero summary -->
-      <div class="hero-card mb-3">
-        <div class="hero-stats">
-          <div class="stat-block">
-            <span class="stat-label">Таблетки</span>
-            <span class="stat-value">
-              {pillLogs.filter(l => !l.skipped).length}<span class="stat-denom">/{medications.length}</span>
-            </span>
-          </div>
-          <div class="stat-sep" />
-          <div class="stat-block">
-            <span class="stat-label">Сон</span>
-            <span class="stat-value">{formatSleepShort(sleepLog)}</span>
-          </div>
-          <div class="stat-sep" />
-          <div class="stat-block">
-            <span class="stat-label">День</span>
-            <span class="stat-value">
-              {dayReport?.overall ?? '—'}<span class="stat-denom">{dayReport?.overall ? '/5' : ''}</span>
-            </span>
+        <!-- Pills card -->
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="compact-card tap-target" on:click={() => navigate('health', 'pills')}>
+          <div class="compact-icon">💊</div>
+          <div class="compact-body">
+            <span class="compact-label">Таблетки</span>
+            <span class="compact-value">{takenCount}/{medications.length}</span>
+            {#if nextMed}
+              <span class="compact-sub">{nextMed.name}</span>
+            {:else if medications.length > 0}
+              <span class="compact-sub compact-done">Все приняты ✓</span>
+            {:else}
+              <span class="compact-sub">Нет препаратов</span>
+            {/if}
           </div>
         </div>
-      </div>
 
-      <!-- Pills -->
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="card mb-3 tap-target" on:click={() => navigate('health', 'hub')}>
-        <div class="card-header">
-          <span class="card-title">Таблетки</span>
-          <span class="card-badge">{pillLogs.filter(l => !l.skipped).length}/{medications.length}</span>
+        <!-- Sleep card -->
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="compact-card tap-target" on:click={() => navigate('health', 'sleep')}>
+          <div class="compact-icon">😴</div>
+          <div class="compact-body">
+            <span class="compact-label">Сон</span>
+            <span class="compact-value">{formatSleep(sleepLog)}</span>
+            {#if sleepLog?.quality}
+              <span class="compact-sub stars">{sleepStars(sleepLog)}</span>
+            {:else}
+              <span class="compact-sub">Не записан</span>
+            {/if}
+          </div>
         </div>
-        {#if medications.length === 0}
-          <p class="empty-hint">Добавь препараты в разделе Здоровье</p>
+
+        <!-- Weight card -->
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="compact-card tap-target" on:click={() => navigate('health', 'measurements')}>
+          <div class="compact-icon">⚖️</div>
+          <div class="compact-body">
+            <span class="compact-label">Вес</span>
+            <span class="compact-value weight-val">{weightDelta(lastWeight, prevWeight)}</span>
+            <span class="compact-sub">vs прошлая неделя</span>
+          </div>
+        </div>
+
+        <!-- Mood card -->
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="compact-card" on:click={() => navigate('emotions')}>
+          <div class="compact-icon">💭</div>
+          <div class="compact-body">
+            <span class="compact-label">Настроение</span>
+            <div class="mood-picker">
+              {#each MOOD_EMOJIS as emoji}
+                <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+                <span
+                  class="mood-btn"
+                  on:click|stopPropagation={() => logMood(emoji)}
+                  title={emoji}
+                >{emoji}</span>
+              {/each}
+            </div>
+            {#if emotions.length > 0}
+              <span class="compact-sub">сегодня {emotions.length} {emotions.length === 1 ? 'запись' : 'записей'}</span>
+            {:else}
+              <span class="compact-sub">Отметь как себя</span>
+            {/if}
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Section 2: Quick input bar -->
+    <section class="dash-section">
+      <div class="quick-bar">
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="quick-pill tap-target" on:click={() => navigate('food')}>
+          <span class="quick-icon">🍎</span>
+          <span>Еда</span>
+        </div>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="quick-pill tap-target" on:click={() => navigate('finances')}>
+          <span class="quick-icon">💰</span>
+          <span>Трата</span>
+        </div>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="quick-pill tap-target" on:click={() => navigate('health', 'workouts')}>
+          <span class="quick-icon">🏃</span>
+          <span>Тренировка</span>
+        </div>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="quick-pill tap-target" on:click={() => showToast('Скоро', 'info')}>
+          <span class="quick-icon">🎤</span>
+          <span>Голос</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 3: Upcoming events -->
+    <section class="dash-section">
+      <p class="section-label">Ближайшие события</p>
+      <div class="card">
+        {#if upcomingEvents.length === 0}
+          <p class="empty-hint">Нет ближайших событий</p>
         {:else}
-          <div class="pill-list">
-            {#each medications as med}
+          <div class="events-list">
+            {#each upcomingEvents as ev}
               <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-              <div
-                class="check-pill"
-                class:checked={takenMedIds.has(med.id)}
-                on:click|stopPropagation={() => toggleMed(med)}
-              >
-                <span class="check-box">{takenMedIds.has(med.id) ? '✓' : ''}</span>
-                <span class="pill-name">{med.name}</span>
+              <div class="event-row tap-target" on:click={() => navigate(ev.tab as any)}>
+                <span class="event-icon">{ev.icon}</span>
+                <span class="event-title">{ev.title}</span>
+                <span class="event-date">{ev.date}</span>
               </div>
             {/each}
           </div>
         {/if}
       </div>
-
-      <!-- Emotions -->
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="card tap-target" on:click={() => navigate('emotions')}>
-        <div class="card-header">
-          <span class="card-title">Настроение</span>
-          {#if dayReport?.overall}
-            <span class="card-badge">{dayReport.overall}/5</span>
-          {/if}
-        </div>
-        {#if emotions.length > 0}
-          <div class="emotion-strip">
-            {#each emotions as e}
-              <span class="emotion-chip" title={e.note ?? ''}>{e.emoji}</span>
-            {/each}
-          </div>
-        {:else}
-          <p class="empty-hint">Отметь настроение →</p>
-        {/if}
-        {#if dayReport?.highlight}
-          <p class="day-highlight">✦ {dayReport.highlight}</p>
-        {:else if emotions.length > 0 && !dayReport}
-          <p class="empty-hint" style="margin-top:0.5rem">Заполни итог дня вечером →</p>
-        {/if}
-      </div>
     </section>
 
-    <!-- Block 2: Week -->
+    <!-- Section 4: Weekly trends 2×2 -->
     <section class="dash-section">
-      <p class="label mb-2">За неделю</p>
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="card tap-target" on:click={() => navigate('finances')}>
-        <div class="card-header">
-          <span class="card-title">Расходы</span>
+      <p class="section-label">За неделю</p>
+      <div class="trends-grid">
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="trend-card tap-target" on:click={() => navigate('finances')}>
+          <span class="trend-icon">💰</span>
+          <span class="trend-label">Траты</span>
+          <span class="trend-value number-display">{weekExpenses.toLocaleString('ru')} ₽</span>
         </div>
-        <div class="finance-row">
-          <span class="finance-amount number-display">{weekExpenses.toLocaleString('ru')} ₽</span>
-          <span class="finance-label">за 7 дней</span>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="trend-card tap-target" on:click={() => navigate('health', 'workouts')}>
+          <span class="trend-icon">🏃</span>
+          <span class="trend-label">Активность</span>
+          <span class="trend-value number-display">{weekWorkouts} тр.</span>
         </div>
-      </div>
-    </section>
-
-    <!-- Block 3: Links -->
-    <section class="dash-section">
-      <p class="label mb-2">Ссылки</p>
-      <div class="card">
-        <a href="https://notion.so" target="_blank" rel="noopener" class="notion-link">
-          <span>Задачи в Notion</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="trend-card tap-target" on:click={() => navigate('food')}>
+          <span class="trend-icon">🍎</span>
+          <span class="trend-label">Калории</span>
+          <span class="trend-value number-display">—</span>
+        </div>
+        <a class="trend-card" href="https://notion.so" target="_blank" rel="noopener">
+          <span class="trend-icon">📋</span>
+          <span class="trend-label">Задачи</span>
+          <span class="trend-value notion-link-label">Notion →</span>
         </a>
       </div>
     </section>
@@ -233,142 +304,280 @@
 </div>
 
 <style>
+  .page-shell {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 1.375rem 6rem;
+    min-height: 100dvh;
+  }
+
+  /* ── Header ── */
   .dash-header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    padding: 1rem 0 0.75rem;
+    padding: 1.25rem 0 1rem;
   }
+
+  .header-left { flex: 1; }
 
   .greeting-label {
     font-size: 0.8125rem;
     color: var(--color-muted);
-    margin: 0 0 0.125rem;
+    margin: 0 0 0.2rem;
+  }
+
+  .dash-title {
+    font-family: "Fraunces", serif;
+    font-size: 1.625rem;
+    font-weight: 300;
+    color: var(--color-text);
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+
+  .header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.375rem;
+    padding-top: 0.125rem;
   }
 
   .header-date {
-    font-size: 0.875rem;
-    color: var(--color-muted);
-    padding-top: 0.25rem;
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 0.875rem;
-  }
-
-  .dash-section { margin-bottom: 1.5rem; }
-
-  .card {
-    background-color: var(--color-card);
-    border-radius: 1.25rem;
-    padding: 1rem;
-    border: 1px solid var(--color-border);
-  }
-
-  .card-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .card-title { font-size: 0.9375rem; color: var(--color-text); flex: 1; }
-
-  .card-badge {
-    font-family: "JetBrains Mono", monospace;
     font-size: 0.8125rem;
-    color: var(--color-accent);
-    background-color: var(--color-bg);
-    border-radius: 0.5rem;
-    padding: 0.125rem 0.5rem;
+    color: var(--color-muted);
   }
 
-  .pill-list { display: flex; flex-direction: column; gap: 0.5rem; }
-
-  .check-pill {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.625rem 0.875rem;
-    background-color: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: 0.875rem;
-    cursor: pointer;
-    transition: background-color 0.15s, border-color 0.15s;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .check-pill:active { transform: scale(0.98); }
-
-  .check-pill.checked {
-    background-color: var(--color-accent);
-    border-color: var(--color-accent);
-    color: white;
-  }
-
-  .check-box {
-    width: 1.25rem;
-    height: 1.25rem;
-    border-radius: 50%;
-    border: 1.5px solid var(--color-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem;
+  .header-avatar {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.625rem;
     flex-shrink: 0;
   }
 
-  .check-pill.checked .check-box { border-color: rgba(255,255,255,0.5); color: white; }
-  .pill-name { font-size: 0.9375rem; }
+  /* ── Sections ── */
+  .dash-section { margin-bottom: 1.375rem; }
 
-  .empty-hint { font-size: 0.8125rem; color: var(--color-muted); margin: 0; }
+  .section-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+    margin: 0 0 0.5rem 0.25rem;
+  }
 
-  .sleep-display { display: flex; align-items: baseline; gap: 0.75rem; }
-  .sleep-hours { font-size: 1.75rem; color: var(--color-text); }
-  .sleep-quality { color: var(--color-accent); font-size: 0.875rem; letter-spacing: 1px; }
+  /* ── Compact 2×2 grid ── */
+  .compact-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.625rem;
+  }
 
-  .emotion-strip { display: flex; gap: 0.375rem; flex-wrap: wrap; }
-  .emotion-chip { font-size: 1.375rem; line-height: 1; }
-
-  .finance-row { display: flex; align-items: baseline; gap: 0.625rem; }
-  .finance-amount { font-size: 1.5rem; color: var(--color-text); }
-  .finance-label { font-size: 0.8125rem; color: var(--color-muted); }
-
-  .notion-link {
+  .compact-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 1.25rem;
+    padding: 0.875rem 0.875rem 0.75rem;
+    min-height: 88px;
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0.625rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+  }
+
+  .compact-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .compact-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .compact-label {
+    font-size: 0.6875rem;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .compact-value {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1.0625rem;
     color: var(--color-text);
-    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .weight-val {
     font-size: 0.9375rem;
   }
-  .notion-link span { flex: 1; }
 
-  .skeleton-list { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 1rem; }
+  .compact-sub {
+    font-size: 0.6875rem;
+    color: var(--color-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .compact-done { color: var(--color-accent); }
+
+  .stars { color: var(--color-accent); letter-spacing: 1px; }
+
+  /* Mood picker inline */
+  .mood-picker {
+    display: flex;
+    gap: 0.1875rem;
+    margin: 0.1875rem 0;
+  }
+
+  .mood-btn {
+    font-size: 1.1rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.1s;
+    line-height: 1;
+  }
+
+  .mood-btn:active { transform: scale(1.3); }
+
+  /* ── Quick bar ── */
+  .quick-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+  }
+
+  .quick-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.75rem 0.25rem;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--color-text);
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+  }
+
+  .quick-icon { font-size: 1.375rem; }
+
+  /* ── Upcoming events ── */
+  .card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 1.25rem;
+    padding: 0.875rem 1rem;
+  }
+
+  .events-list { display: flex; flex-direction: column; }
+
+  .event-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5625rem 0;
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .event-row:last-child { border-bottom: none; }
+
+  .event-icon { font-size: 1.125rem; flex-shrink: 0; }
+
+  .event-title {
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .event-date {
+    font-size: 0.75rem;
+    color: var(--color-muted);
+    flex-shrink: 0;
+  }
+
+  .empty-hint {
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+    margin: 0;
+    text-align: center;
+    padding: 0.5rem 0;
+  }
+
+  /* ── Trends 2×2 ── */
+  .trends-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.625rem;
+  }
+
+  .trend-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 1.25rem;
+    padding: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+    text-decoration: none;
+  }
+
+  .trend-icon { font-size: 1.25rem; }
+
+  .trend-label {
+    font-size: 0.6875rem;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .trend-value {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1.125rem;
+    color: var(--color-text);
+  }
+
+  .notion-link-label {
+    font-family: inherit;
+    font-size: 0.9375rem;
+    color: var(--color-accent);
+  }
+
+  /* ── Shared ── */
+  .tap-target:active { opacity: 0.75; }
+
+  /* ── Skeleton ── */
+  .skeleton-list { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.5rem; }
   .skeleton-card {
     height: 6rem;
     border-radius: 1.25rem;
-    background: linear-gradient(90deg, var(--color-card) 25%, var(--color-card-hover) 50%, var(--color-card) 75%);
+    background: linear-gradient(90deg, var(--color-card) 25%, var(--color-card-hover, var(--color-border)) 50%, var(--color-card) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.4s infinite;
   }
 
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-
-  .day-highlight {
-    font-size: 0.875rem;
-    color: var(--color-muted);
-    margin: 0.5rem 0 0;
-    font-style: italic;
-  }
-
-  .hero-stats { display: flex; align-items: center; }
-
-  .tap-target { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: opacity 0.15s; }
-  .tap-target:active { opacity: 0.8; }
-  .mb-2 { margin-bottom: 0.5rem; }
-  .mb-3 { margin-bottom: 0.75rem; }
 </style>

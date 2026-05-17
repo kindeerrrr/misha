@@ -17,8 +17,9 @@
     { id: 'credits',   title: 'Кредиты',   sub: 'Долги и платежи',       icon: icons.credit_card },
   ]
   const leisure: Section[] = [
-    { id: 'media',     title: 'Медиа',     sub: 'Книги, фильмы, сериалы', icon: icons.book },
-    { id: 'travel',    title: 'Путешествия', sub: 'Поездки и маршруты',  icon: icons.plane },
+    { id: 'media',     title: 'Медиа',        sub: 'Книги, фильмы, сериалы', icon: icons.book },
+    { id: 'travel',    title: 'Путешествия',   sub: 'Поездки и маршруты',     icon: icons.plane },
+    { id: 'food',      title: 'Питание',       sub: 'Дневник еды и калорий',  icon: icons.bowl },
   ]
 </script>
 
