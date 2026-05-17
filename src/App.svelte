@@ -1,6 +1,7 @@
 <script lang="ts">
   import { user, authLoading } from './stores/user'
   import { activeTab } from './stores/nav'
+  import { avatar, avatarSrc } from './stores/avatar'
   import BottomNav from './components/layout/BottomNav.svelte'
   import OfflineBanner from './components/ui/OfflineBanner.svelte'
   import Login from './pages/Login.svelte'
@@ -25,7 +26,7 @@
 
 {#if $authLoading}
   <div class="splash">
-    <div class="splash-logo">M</div>
+    <img src={avatarSrc($avatar, 192)} alt="misha" class="splash-avatar" />
   </div>
 {:else if !$user}
   <Login />
@@ -66,18 +67,10 @@
     background-color: var(--color-bg);
   }
 
-  .splash-logo {
-    width: 5rem;
-    height: 5rem;
+  .splash-avatar {
+    width: 6rem;
+    height: 6rem;
     border-radius: 1.5rem;
-    background-color: var(--color-accent);
-    color: white;
-    font-family: "Fraunces", serif;
-    font-size: 2.5rem;
-    font-weight: 300;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     animation: pulse 1.5s ease-in-out infinite;
   }
 

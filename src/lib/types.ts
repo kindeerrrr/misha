@@ -393,5 +393,6 @@ export interface CreditPayment {
 // ─── UI helpers ──────────────────────────────────────────────────────────────
 
 export type Theme = 'latte' | 'sage' | 'light' | 'dark'
+export type AvatarVariant = 'sage' | 'pink'
 export type NavTab = 'dashboard' | 'health' | 'emotions' | 'finances' | 'habits' | 'cat' | 'media' | 'settings' | 'hub' | 'travel' | 'credits'
 export type HealthTab = 'hub' | 'pills' | 'sleep' | 'measurements' | 'workouts' | 'doctors' | 'research' | 'checkups'

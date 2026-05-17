@@ -4,7 +4,7 @@ import type { Theme } from '../lib/types'
 const STORAGE_KEY = 'misha_theme'
 
 function createThemeStore() {
-  const saved = (localStorage.getItem(STORAGE_KEY) as Theme) ?? 'latte'
+  const saved = (localStorage.getItem(STORAGE_KEY) as Theme) ?? 'light'
   const { subscribe, set } = writable<Theme>(saved)
 
   function apply(theme: Theme) {

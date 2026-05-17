@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { avatar, avatarSrc } from '../../stores/avatar'
   export let title: string = ''
   export let subtitle: string = ''
   export let back: (() => void) | null = null
@@ -21,6 +22,7 @@
         {/if}
       </div>
       <slot name="action" />
+      <img src={avatarSrc($avatar)} alt="misha" class="header-avatar" />
     </header>
   {/if}
 
@@ -56,6 +58,14 @@
     padding: 0.25rem;
     margin-top: 0.125rem;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  .header-avatar {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
   }
 
   .page-content {

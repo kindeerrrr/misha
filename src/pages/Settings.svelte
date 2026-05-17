@@ -2,10 +2,11 @@
   import PageShell from '../components/layout/PageShell.svelte'
   import Card from '../components/ui/Card.svelte'
   import { theme } from '../stores/theme'
+  import { avatar, avatarSrc } from '../stores/avatar'
   import { signOut } from '../stores/user'
   import { user } from '../stores/user'
   import { showToast } from '../stores/toast'
-  import type { Theme } from '../lib/types'
+  import type { Theme, AvatarVariant } from '../lib/types'
 
   async function forceUpdate() {
     if ('serviceWorker' in navigator) {
@@ -21,6 +22,11 @@
     { id: 'dark',   label: 'Тёмная',  bg: '#1C1C1E',  accent: '#0A84FF' },
     { id: 'latte',  label: 'Латте',   bg: '#FAF5EE',  accent: '#B85A3E' },
     { id: 'sage',   label: 'Шалфей',  bg: '#F4F1EA',  accent: '#6D8F70' },
+  ]
+
+  const AVATARS: { id: AvatarVariant; label: string }[] = [
+    { id: 'sage', label: 'Sage' },
+    { id: 'pink', label: 'Pink' },
   ]
 
   async function handleSignOut() {
@@ -44,6 +50,26 @@
               <div class="theme-accent-dot" style="background:{t.accent}" />
             </div>
             <span class="theme-label">{t.label}</span>
+          </button>
+        {/each}
+      </div>
+    </section>
+
+    <section class="mt-4">
+      <p class="label mb-2">Аватар</p>
+      <div class="avatar-grid">
+        {#each AVATARS as av}
+          <button
+            class="avatar-card"
+            class:active={$avatar === av.id}
+            on:click={() => avatar.set(av.id)}
+          >
+            <img
+              src={avatarSrc(av.id)}
+              alt={av.label}
+              class="avatar-img"
+            />
+            <span class="avatar-label">{av.label}</span>
           </button>
         {/each}
       </div>
@@ -136,6 +162,48 @@
     font-weight: 500;
   }
 
+  /* Avatar */
+  .avatar-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.625rem;
+  }
+
+  .avatar-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.875rem 0.75rem;
+    background: var(--color-card);
+    border: 1.5px solid var(--color-border);
+    border-radius: 1rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .avatar-card.active {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+  .avatar-card:active { transform: scale(0.97); }
+
+  .avatar-img {
+    width: 4rem;
+    height: 4rem;
+    border-radius: 1rem;
+    object-fit: cover;
+  }
+
+  .avatar-label {
+    font-size: 0.8125rem;
+    color: var(--color-text);
+  }
+  .avatar-card.active .avatar-label {
+    color: var(--color-accent);
+    font-weight: 500;
+  }
+
   .account-row {
     display: flex;
     align-items: center;
@@ -163,6 +231,5 @@
   }
 
   .mt-4 { margin-top: 1rem; }
-  .mt-6 { margin-top: 1.5rem; }
   .mb-2 { margin-bottom: 0.5rem; }
 </style>
