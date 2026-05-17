@@ -146,38 +146,40 @@
         {/if}
 
         <button type="submit" class="btn-primary mt-4" disabled={loading}>
-          {#if loading}
-            {mode === 'register' ? 'Создаю...' : 'Вхожу...'}
-          {:else if mode === 'register'}
-            Создать аккаунт
-          {:else if mode === 'password'}
-            Войти
-          {:else}
-            Отправить ссылку
-          {/if}
+          {loading ? (mode === 'register' ? 'Создаю...' : 'Вхожу...') : mode === 'register' ? 'Создать аккаунт' : mode === 'password' ? 'Войти' : 'Отправить ссылку'}
         </button>
 
-        <div class="links-row">
-          {#if mode === 'password'}
+        {#if mode === 'password'}
+          <div class="links-row">
             <button type="button" class="link-btn" on:click={handleReset} disabled={resetLoading}>
               {resetLoading ? 'Отправляю...' : 'Забыла пароль?'}
             </button>
-          {/if}
-          {#if mode === 'register'}
+            <button type="button" class="link-btn" on:click={() => switchMode('magic')}>
+              Войти без пароля
+            </button>
+          </div>
+        {/if}
+        {#if mode === 'magic'}
+          <div class="links-row">
+            <button type="button" class="link-btn" on:click={() => switchMode('password')}>
+              Войти по паролю
+            </button>
+          </div>
+        {/if}
+        {#if mode === 'register'}
+          <div class="links-row">
             <button type="button" class="link-btn" on:click={() => switchMode('password')}>
               Уже есть аккаунт
             </button>
-          {:else}
-            <button type="button" class="link-btn" on:click={() => switchMode('register')}>
-              Создать аккаунт
-            </button>
-          {/if}
-          {#if mode !== 'register'}
-            <button type="button" class="link-btn" on:click={() => switchMode(mode === 'password' ? 'magic' : 'password')}>
-              {mode === 'password' ? 'Войти без пароля' : 'Войти по паролю'}
-            </button>
-          {/if}
-        </div>
+          </div>
+        {/if}
+
+        {#if mode !== 'register'}
+          <div class="divider"><span>или</span></div>
+          <button type="button" class="btn-secondary" on:click={() => switchMode('register')}>
+            Создать аккаунт
+          </button>
+        {/if}
       </form>
     {/if}
   </div>
@@ -296,6 +298,36 @@
   }
   .link-btn:disabled { opacity: 0.5; cursor: default; }
   .link-btn:active { opacity: 0.6; }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.75rem 0 0;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+  }
+
+  .btn-secondary {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 0.875rem;
+    border: 1.5px solid var(--color-accent);
+    background: transparent;
+    color: var(--color-accent);
+    font-family: "Source Serif 4", serif;
+    font-size: 1rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .btn-secondary:active { opacity: 0.7; transform: scale(0.98); }
 
   .sent-card {
     text-align: center;
