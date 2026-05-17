@@ -111,14 +111,25 @@
         {#if mode === 'password' || mode === 'register'}
           <label class="label" for="password">Пароль</label>
           <div class="password-wrap">
-            <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              bind:value={password}
-              placeholder="••••••••"
-              autocomplete={mode === 'register' ? 'new-password' : 'current-password'}
-              required
-            />
+            {#if showPassword}
+              <input
+                id="password"
+                type="text"
+                bind:value={password}
+                placeholder="••••••••"
+                autocomplete={mode === 'register' ? 'new-password' : 'current-password'}
+                required
+              />
+            {:else}
+              <input
+                id="password"
+                type="password"
+                bind:value={password}
+                placeholder="••••••••"
+                autocomplete={mode === 'register' ? 'new-password' : 'current-password'}
+                required
+              />
+            {/if}
             <button
               type="button"
               class="eye-btn"
