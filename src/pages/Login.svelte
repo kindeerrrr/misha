@@ -1,11 +1,15 @@
 <script lang="ts">
   import { signInWithPassword, signInWithMagicLink } from '../stores/user'
   import { avatar, avatarSrc } from '../stores/avatar'
+  import { updateProfile } from '../stores/profile'
   import { supabase } from '../lib/supabase'
 
-  let email = 'daryabelogaj24@icloud.com'
+  type Mode = 'password' | 'magic' | 'register'
+
+  let email = ''
   let password = ''
-  let mode: 'password' | 'magic' = 'password'
+  let displayName = ''
+  let mode: Mode = 'password'
   let sent = false
   let loading = false
   let error = ''
@@ -16,6 +20,17 @@
   async function handleSubmit() {
     loading = true
     error = ''
+
+    if (mode === 'register') {
+      const { data, error: err } = await supabase.auth.signUp({ email, password })
+      if (err) { error = err.message; loading = false; return }
+      if (displayName.trim() && data.user) {
+        await updateProfile({ display_name: displayName.trim() })
+      }
+      loading = false
+      return
+    }
+
     if (mode === 'password') {
       const { error: err } = await signInWithPassword(email, password)
       loading = false
@@ -39,6 +54,12 @@
     if (err) error = err.message
     else resetSent = true
   }
+
+  function switchMode(m: Mode) {
+    mode = m
+    error = ''
+    showPassword = false
+  }
 </script>
 
 <div class="login-page">
@@ -60,10 +81,23 @@
         <div class="sent-icon">🔑</div>
         <p class="sent-title">Письмо отправлено</p>
         <p class="sent-body">Проверь {email} — придёт ссылка для сброса пароля.</p>
-        <button class="mode-toggle mt-3" on:click={() => resetSent = false}>Назад</button>
+        <button class="link-btn mt-3" on:click={() => { resetSent = false }}>Назад</button>
       </div>
     {:else}
       <form on:submit|preventDefault={handleSubmit} class="login-form">
+
+        {#if mode === 'register'}
+          <p class="form-heading">Создать аккаунт</p>
+          <label class="label" for="dname">Как тебя зовут?</label>
+          <input
+            id="dname"
+            type="text"
+            bind:value={displayName}
+            placeholder="Даша"
+            autocomplete="name"
+          />
+        {/if}
+
         <label class="label" for="email">Email</label>
         <input
           id="email"
@@ -73,28 +107,18 @@
           autocomplete="email"
           required
         />
-        {#if mode === 'password'}
+
+        {#if mode === 'password' || mode === 'register'}
           <label class="label" for="password">Пароль</label>
           <div class="password-wrap">
-            {#if showPassword}
-              <input
-                id="password"
-                type="text"
-                bind:value={password}
-                placeholder="••••••••"
-                autocomplete="current-password"
-                required
-              />
-            {:else}
-              <input
-                id="password"
-                type="password"
-                bind:value={password}
-                placeholder="••••••••"
-                autocomplete="current-password"
-                required
-              />
-            {/if}
+            <input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              bind:value={password}
+              placeholder="••••••••"
+              autocomplete={mode === 'register' ? 'new-password' : 'current-password'}
+              required
+            />
             <button
               type="button"
               class="eye-btn"
@@ -116,11 +140,21 @@
             </button>
           </div>
         {/if}
+
         {#if error}
           <p class="error-msg">{error}</p>
         {/if}
+
         <button type="submit" class="btn-primary mt-4" disabled={loading}>
-          {loading ? 'Вхожу...' : mode === 'password' ? 'Войти' : 'Отправить ссылку'}
+          {#if loading}
+            {mode === 'register' ? 'Создаю...' : 'Вхожу...'}
+          {:else if mode === 'register'}
+            Создать аккаунт
+          {:else if mode === 'password'}
+            Войти
+          {:else}
+            Отправить ссылку
+          {/if}
         </button>
 
         <div class="links-row">
@@ -129,9 +163,20 @@
               {resetLoading ? 'Отправляю...' : 'Забыла пароль?'}
             </button>
           {/if}
-          <button type="button" class="link-btn" on:click={() => { mode = mode === 'password' ? 'magic' : 'password'; error = '' }}>
-            {mode === 'password' ? 'Войти без пароля' : 'Войти по паролю'}
-          </button>
+          {#if mode === 'register'}
+            <button type="button" class="link-btn" on:click={() => switchMode('password')}>
+              Уже есть аккаунт
+            </button>
+          {:else}
+            <button type="button" class="link-btn" on:click={() => switchMode('register')}>
+              Создать аккаунт
+            </button>
+          {/if}
+          {#if mode !== 'register'}
+            <button type="button" class="link-btn" on:click={() => switchMode(mode === 'password' ? 'magic' : 'password')}>
+              {mode === 'password' ? 'Войти без пароля' : 'Войти по паролю'}
+            </button>
+          {/if}
         </div>
       </form>
     {/if}
@@ -188,6 +233,15 @@
     gap: 0.5rem;
   }
 
+  .form-heading {
+    font-family: "Fraunces", serif;
+    font-size: 1.25rem;
+    font-weight: 300;
+    color: var(--color-text);
+    margin: 0 0 0.25rem;
+    letter-spacing: -0.01em;
+  }
+
   .password-wrap {
     position: relative;
   }
@@ -226,6 +280,7 @@
     display: flex;
     justify-content: space-between;
     gap: 0.5rem;
+    flex-wrap: wrap;
     margin-top: 0.25rem;
   }
 
@@ -237,7 +292,6 @@
     cursor: pointer;
     padding: 0.25rem 0;
     -webkit-tap-highlight-color: transparent;
-    opacity: 1;
     transition: opacity 0.15s;
   }
   .link-btn:disabled { opacity: 0.5; cursor: default; }
@@ -269,9 +323,6 @@
   }
 
   .mt-3 { margin-top: 0.75rem; }
-  .mt-4 { margin-top: 0.25rem; }
 
-  button:disabled {
-    opacity: 0.6;
-  }
+  button:disabled { opacity: 0.6; }
 </style>

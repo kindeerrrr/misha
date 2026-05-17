@@ -5,8 +5,23 @@
   import { avatar, avatarSrc } from '../stores/avatar'
   import { signOut } from '../stores/user'
   import { user } from '../stores/user'
+  import { profile, updateProfile } from '../stores/profile'
   import { showToast } from '../stores/toast'
   import type { Theme, AvatarVariant } from '../lib/types'
+
+  let editingName = false
+  let nameInput = ''
+
+  function startEditName() {
+    nameInput = $profile?.display_name ?? ''
+    editingName = true
+  }
+
+  async function saveName() {
+    const { error } = await updateProfile({ display_name: nameInput.trim() })
+    if (error) showToast('Ошибка сохранения', 'error')
+    else { showToast('Имя сохранено', 'success'); editingName = false }
+  }
 
   async function forceUpdate() {
     if ('serviceWorker' in navigator) {
@@ -78,8 +93,24 @@
     <section class="mt-4">
       <p class="label mb-2">Аккаунт</p>
       <Card>
-        <div class="account-row">
+        <div class="account-col">
           <span class="account-email">{$user?.email ?? '—'}</span>
+          {#if editingName}
+            <div class="name-edit-row">
+              <input
+                class="name-input"
+                bind:value={nameInput}
+                placeholder="Твоё имя"
+                on:keydown={e => { if (e.key === 'Enter') saveName() }}
+              />
+              <button class="name-save-btn" on:click={saveName}>Сохранить</button>
+              <button class="name-cancel-btn" on:click={() => editingName = false}>Отмена</button>
+            </div>
+          {:else}
+            <button class="name-btn" on:click={startEditName}>
+              {$profile?.display_name ? $profile.display_name : '+ Добавить имя'}
+            </button>
+          {/if}
         </div>
       </Card>
     </section>
@@ -204,14 +235,46 @@
     font-weight: 500;
   }
 
-  .account-row {
+  .account-col {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 0.375rem;
   }
 
   .account-email {
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+  }
+
+  .name-btn {
+    background: none; border: none; padding: 0;
+    font-size: 0.9375rem; color: var(--color-accent);
+    cursor: pointer; text-align: left;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .name-edit-row {
+    display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  }
+
+  .name-input {
+    flex: 1; min-width: 0;
     font-size: 0.9375rem;
-    color: var(--color-text);
+    padding: 0.375rem 0.625rem;
+    border-radius: 0.5rem;
+  }
+
+  .name-save-btn {
+    background: var(--color-accent); color: white; border: none;
+    border-radius: 0.5rem; padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .name-cancel-btn {
+    background: none; border: none; color: var(--color-muted);
+    font-size: 0.8125rem; cursor: pointer; padding: 0.375rem 0;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .update-btn {

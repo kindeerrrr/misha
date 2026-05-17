@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { supabase, today } from '../lib/supabase'
   import { user } from '../stores/user'
+  import { profile, getFirstName } from '../stores/profile'
   import { navigate } from '../stores/nav'
   import DateNav from '../components/ui/DateNav.svelte'
   import type { Medication, MedicationLog, SleepLog, EmotionEntry, DayReport } from '../lib/types'
@@ -106,7 +107,7 @@
   <!-- Header -->
   <header class="dash-header">
     <div>
-      <p class="greeting-label">{greeting}</p>
+      <p class="greeting-label">{greeting}{getFirstName($profile) ? `, ${getFirstName($profile)}` : ''}</p>
       <h1 class="section-title">Как дела?</h1>
     </div>
     <div class="header-date number-display">
