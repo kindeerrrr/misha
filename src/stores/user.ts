@@ -18,11 +18,16 @@ supabase.auth.onAuthStateChange((_event, s) => {
   authLoading.set(false)
 })
 
+export async function signInWithPassword(email: string, password: string) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  return { error }
+}
+
 export async function signInWithMagicLink(email: string) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${window.location.origin}/misha/`,
+      emailRedirectTo: `${window.location.origin}/`,
     },
   })
   return { error }

@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { signInWithMagicLink } from '../stores/user'
+  import { signInWithPassword, signInWithMagicLink } from '../stores/user'
 
   let email = 'daryabelogaj24@icloud.com'
+  let password = ''
+  let mode: 'password' | 'magic' = 'password'
   let sent = false
   let loading = false
   let error = ''
@@ -9,12 +11,15 @@
   async function handleSubmit() {
     loading = true
     error = ''
-    const { error: err } = await signInWithMagicLink(email)
-    loading = false
-    if (err) {
-      error = err.message
+    if (mode === 'password') {
+      const { error: err } = await signInWithPassword(email, password)
+      loading = false
+      if (err) error = err.message
     } else {
-      sent = true
+      const { error: err } = await signInWithMagicLink(email)
+      loading = false
+      if (err) error = err.message
+      else sent = true
     }
   }
 </script>
@@ -44,13 +49,26 @@
           autocomplete="email"
           required
         />
+        {#if mode === 'password'}
+          <label class="label" for="password">Пароль</label>
+          <input
+            id="password"
+            type="password"
+            bind:value={password}
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required
+          />
+        {/if}
         {#if error}
           <p class="error-msg">{error}</p>
         {/if}
         <button type="submit" class="btn-primary mt-4" disabled={loading}>
-          {loading ? 'Отправляю...' : 'Войти без пароля'}
+          {loading ? 'Вхожу...' : mode === 'password' ? 'Войти' : 'Отправить ссылку'}
         </button>
-        <p class="login-hint">Пришлём ссылку на почту — нажмёшь и войдёшь</p>
+        <button type="button" class="mode-toggle" on:click={() => { mode = mode === 'password' ? 'magic' : 'password'; error = '' }}>
+          {mode === 'password' ? 'Войти без пароля (ссылка на почту)' : 'Войти по паролю'}
+        </button>
       </form>
     {/if}
   </div>
@@ -118,11 +136,15 @@
     margin: 0;
   }
 
-  .login-hint {
+  .mode-toggle {
+    background: none;
+    border: none;
+    color: var(--color-accent);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    padding: 0.25rem 0;
     text-align: center;
-    font-size: 0.75rem;
-    color: var(--color-muted);
-    margin: 0.5rem 0 0;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .sent-card {
