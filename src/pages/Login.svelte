@@ -1,5 +1,6 @@
 <script lang="ts">
   import { signInWithPassword, signInWithMagicLink } from '../stores/user'
+  import { avatar, avatarSrc } from '../stores/avatar'
 
   let email = 'daryabelogaj24@icloud.com'
   let password = ''
@@ -27,7 +28,7 @@
 <div class="login-page">
   <div class="login-inner">
     <div class="brand">
-      <div class="logo">M</div>
+      <img src={avatarSrc($avatar)} alt="misha" class="logo" />
       <h1 class="app-name">misha</h1>
       <p class="app-tagline">личный трекер жизни</p>
     </div>
@@ -98,15 +99,9 @@
     width: 4rem;
     height: 4rem;
     border-radius: 1.25rem;
-    background-color: var(--color-accent);
-    color: white;
-    font-family: "Fraunces", serif;
-    font-size: 2rem;
-    font-weight: 300;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
     margin: 0 auto 1rem;
+    object-fit: cover;
   }
 
   .app-name {
