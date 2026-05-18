@@ -264,31 +264,53 @@
     formName = ''; formGrams = 100; formCalories = null
     formProtein = null; formFat = null; formCarbs = null; pickedItem = null
 
-    // 1) Try Open Food Facts (great Russian product coverage, no auth)
+    // 1) Try Open Food Facts (great coverage, no auth needed)
     try {
+      // No fields filter — get full object so we can find any language name
       const res = await fetch(
-        `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_ru,brands,nutriments`
+        `https://world.openfoodfacts.org/api/v2/product/${code}.json`
       )
       const data = await res.json()
       if (data.status === 1 && data.product) {
-        const p  = data.product
-        const n  = p.nutriments ?? {}
-        const name = p.product_name_ru || p.product_name || ''
+        const p = data.product
+        const n = p.nutriments ?? {}
+
+        // Try multiple language variants: ru → en → generic → any product_name_xx
+        const nameFromEntries = (Object.entries(p as Record<string, unknown>)
+          .find(([k, v]) => k.startsWith('product_name_') && typeof v === 'string' && (v as string).length > 0)
+          ?.[1] ?? '') as string
+
+        const name =
+          (p.product_name_ru as string | undefined) ||
+          (p.product_name_en as string | undefined) ||
+          (p.product_name    as string | undefined) ||
+          (p.product_name_de as string | undefined) ||
+          (p.product_name_fr as string | undefined) ||
+          nameFromEntries ||
+          ''
 
         if (name) {
-          formName  = name
+          // Calories: prefer kcal field, fall back to kJ→kcal conversion
+          let kcal: number | null = null
+          if (n['energy-kcal_100g'] != null) {
+            kcal = Math.round(n['energy-kcal_100g'])
+          } else if (n['energy_100g'] != null) {
+            kcal = Math.round(n['energy_100g'] / 4.184)   // kJ → kcal
+          }
+
+          formName = name
           const item: Suggestion = {
             id:    `off-${code}`,
             name,
             brand: p.brands ?? null,
-            calories_per_100g: n['energy-kcal_100g'] != null ? Math.round(n['energy-kcal_100g']) : null,
+            calories_per_100g: kcal,
             protein_per_100g:  n.proteins_100g      != null ? Math.round(n.proteins_100g      * 10) / 10 : null,
             fat_per_100g:      n.fat_100g            != null ? Math.round(n.fat_100g            * 10) / 10 : null,
             carbs_per_100g:    n.carbohydrates_100g  != null ? Math.round(n.carbohydrates_100g  * 10) / 10 : null,
-            source: 'local',  // treat as local — already have macros
+            source: 'local',
           }
-          pickedItem    = item
-          formGrams     = formGrams ?? 100
+          pickedItem = item
+          formGrams  = formGrams ?? 100
           recalcMacros()
           barcodeStatus = 'found'
           showModal = true
@@ -412,6 +434,7 @@
   <div class="scanner-overlay">
     <div class="scanner-inner">
       <p class="scanner-hint">Наведи камеру на штрих-код</p>
+      <p class="scanner-tip">Чтобы не спрашивало каждый раз: Настройки → Safari → Камера → Разрешить</p>
       <!-- svelte-ignore a11y-media-has-caption -->
       <video bind:this={scannerVideoEl} class="scanner-video" autoplay playsinline muted />
       <div class="scan-frame">
@@ -654,7 +677,8 @@
     width: min(90vw, 360px);
     display: flex; flex-direction: column; align-items: center; gap: 1.25rem;
   }
-  .scanner-hint { color: white; font-size: 0.9375rem; margin: 0; }
+  .scanner-hint { color: white; font-size: 0.9375rem; margin: 0; text-align: center; }
+  .scanner-tip  { color: rgba(255,255,255,0.5); font-size: 0.75rem; margin: 0; text-align: center; line-height: 1.4; }
   .scanner-video {
     width: 100%; aspect-ratio: 1;
     border-radius: 1rem; object-fit: cover; background: #000;
