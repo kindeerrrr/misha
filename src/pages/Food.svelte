@@ -44,6 +44,20 @@
     source: SuggSource
   }
 
+  interface QuickPick {
+    name:     string
+    grams:    number
+    calories: number | null
+    protein:  number | null
+    fat:      number | null
+    carbs:    number | null
+    // per-100g (for recalc when user changes grams)
+    cal100: number | null
+    prot100: number | null
+    fat100:  number | null
+    carb100: number | null
+  }
+
   // ── State ─────────────────────────────────────────────────────────────────
   let selectedDate = today()
   let entries:   FoodEntry[] = []
@@ -52,6 +66,11 @@
   let showModal = false
   let saving    = false
   let deletingId: string | null = null
+
+  // Quick picks (shown when name input is empty)
+  let recentPicks:   QuickPick[] = []
+  let frequentPicks: QuickPick[] = []
+  let quickTab: 'recent' | 'frequent' = 'recent'
 
   const CALORIE_GOAL = 1800
 
@@ -122,15 +141,70 @@
   async function load() {
     if (!$user) return
     loading = true
-    const [entRes, itemsRes] = await Promise.all([
+    const [entRes, itemsRes, histRes] = await Promise.all([
       supabase.from('food_entries').select('*')
         .eq('user_id', $user.id).eq('date', selectedDate).order('created_at'),
       supabase.from('food_items').select('id, name, calories_per_100g, protein_per_100g, fat_per_100g, carbs_per_100g')
         .eq('user_id', $user.id).order('name'),
+      supabase.from('food_entries')
+        .select('food_name, grams, calories, protein, fat, carbs')
+        .eq('user_id', $user.id)
+        .order('created_at', { ascending: false })
+        .limit(200),
     ])
     entries   = entRes.data   ?? []
     foodItems = itemsRes.data ?? []
-    loading   = false
+
+    // Build quick picks from history
+    const hist = histRes.data ?? []
+
+    // Recent: first occurrence of each name (newest first), top 20
+    const seenNames = new Set<string>()
+    recentPicks = hist
+      .filter(e => {
+        const k = e.food_name.toLowerCase()
+        if (seenNames.has(k)) return false
+        seenNames.add(k)
+        return true
+      })
+      .slice(0, 20)
+      .map(e => ({
+        name:    e.food_name,
+        grams:   e.grams,
+        calories: e.calories,
+        protein:  e.protein,
+        fat:      e.fat,
+        carbs:    e.carbs,
+        cal100:  e.grams ? Math.round((e.calories ?? 0) / e.grams * 100) : null,
+        prot100: e.grams && e.protein  != null ? Math.round(e.protein  / e.grams * 100 * 10) / 10 : null,
+        fat100:  e.grams && e.fat      != null ? Math.round(e.fat      / e.grams * 100 * 10) / 10 : null,
+        carb100: e.grams && e.carbs    != null ? Math.round(e.carbs    / e.grams * 100 * 10) / 10 : null,
+      }))
+
+    // Frequent: sort by count desc, top 20
+    const freq: Record<string, { count: number; e: typeof hist[0] }> = {}
+    for (const e of hist) {
+      const k = e.food_name.toLowerCase()
+      if (!freq[k]) freq[k] = { count: 0, e }
+      freq[k].count++
+    }
+    frequentPicks = Object.values(freq)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20)
+      .map(f => ({
+        name:    f.e.food_name,
+        grams:   f.e.grams,
+        calories: f.e.calories,
+        protein:  f.e.protein,
+        fat:      f.e.fat,
+        carbs:    f.e.carbs,
+        cal100:  f.e.grams ? Math.round((f.e.calories ?? 0) / f.e.grams * 100) : null,
+        prot100: f.e.grams && f.e.protein != null ? Math.round(f.e.protein / f.e.grams * 100 * 10) / 10 : null,
+        fat100:  f.e.grams && f.e.fat     != null ? Math.round(f.e.fat     / f.e.grams * 100 * 10) / 10 : null,
+        carb100: f.e.grams && f.e.carbs   != null ? Math.round(f.e.carbs   / f.e.grams * 100 * 10) / 10 : null,
+      }))
+
+    loading = false
   }
 
   $: if (selectedDate) load()
@@ -217,6 +291,30 @@
   }
 
   $: if (formGrams) recalcMacros()
+
+  // ── Quick pick ────────────────────────────────────────────────────────────
+  function pickQuick(q: QuickPick) {
+    formName     = q.name
+    formGrams    = q.grams
+    formCalories = q.calories
+    formProtein  = q.protein
+    formFat      = q.fat
+    formCarbs    = q.carbs
+    // Store per-100g so recalcMacros works if user changes grams
+    if (q.cal100 != null || q.prot100 != null) {
+      pickedItem = {
+        id:   `quick-${q.name}`,
+        name: q.name,
+        brand: null,
+        calories_per_100g: q.cal100,
+        protein_per_100g:  q.prot100,
+        fat_per_100g:      q.fat100,
+        carbs_per_100g:    q.carb100,
+        source: 'local',
+      }
+    }
+    suggestions = []
+  }
 
   // ── Barcode scanner ───────────────────────────────────────────────────────
   async function startScanner() {
@@ -538,6 +636,32 @@
     <div class="barcode-banner found">✓ Продукт найден</div>
   {:else if barcodeStatus === 'notfound'}
     <div class="barcode-banner notfound">Продукт не найден — введи вручную</div>
+  {/if}
+
+  <!-- Quick picks (shown when name is empty and we have history) -->
+  {#if !formName.trim() && (recentPicks.length > 0 || frequentPicks.length > 0)}
+    <div class="quick-picks">
+      <div class="qp-tabs">
+        <button class="qp-tab" class:active={quickTab === 'recent'}
+          on:click={() => quickTab = 'recent'}>Недавно</button>
+        <button class="qp-tab" class:active={quickTab === 'frequent'}
+          on:click={() => quickTab = 'frequent'}>Часто</button>
+      </div>
+      <div class="qp-list">
+        {#each (quickTab === 'recent' ? recentPicks : frequentPicks) as q}
+          <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+          <div class="qp-row" on:click={() => pickQuick(q)}>
+            <div class="qp-info">
+              <span class="qp-name">{q.name}</span>
+              <span class="qp-meta">{q.grams}г{q.calories != null ? ` · ${Math.round(q.calories)} ккал` : ''}</span>
+            </div>
+            {#if q.cal100 != null}
+              <span class="qp-cal100">{q.cal100} ккал/100г</span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
   {/if}
 
   <!-- Meal type selector -->
@@ -899,4 +1023,45 @@
     background-size: 200% 100%; animation: shimmer 1.4s infinite;
   }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  /* ── Quick picks ── */
+  .quick-picks {
+    margin-bottom: 1rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem; overflow: hidden;
+  }
+  .qp-tabs {
+    display: flex; border-bottom: 1px solid var(--color-border);
+  }
+  .qp-tab {
+    flex: 1; padding: 0.5rem;
+    background: none; border: none;
+    font-size: 0.8125rem; font-family: inherit;
+    color: var(--color-muted); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .qp-tab.active {
+    color: var(--color-accent); font-weight: 600;
+    border-bottom: 2px solid var(--color-accent);
+    margin-bottom: -1px;
+  }
+  .qp-list { max-height: 14rem; overflow-y: auto; }
+  .qp-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.5625rem 0.875rem;
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    transition: background 0.1s;
+  }
+  .qp-row:last-child { border-bottom: none; }
+  .qp-row:active { background: var(--color-card); }
+  .qp-info { display: flex; flex-direction: column; gap: 1px; }
+  .qp-name { font-size: 0.9rem; color: var(--color-text); }
+  .qp-meta { font-size: 0.72rem; color: var(--color-muted); }
+  .qp-cal100 {
+    font-size: 0.72rem; color: var(--color-muted);
+    white-space: nowrap; flex-shrink: 0; margin-left: 0.5rem;
+  }
 </style>
