@@ -174,6 +174,7 @@ export interface ExpenseCategory {
   group_name: string
   is_quick: boolean
   sort_order: number
+  applies_to?: 'expense' | 'income' | 'both'
 }
 
 export interface Expense {
@@ -183,8 +184,10 @@ export interface Expense {
   amount: number
   category_id: string | null
   category?: ExpenseCategory
+  name: string | null
   note: string | null
   tx_type: 'expense' | 'income' | 'saving'
+  payment_type: 'regular' | 'installment' | null
   created_at: string
 }
 

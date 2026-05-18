@@ -6,6 +6,7 @@
   import { navigate } from '../stores/nav'
   import { avatar, avatarSrc } from '../stores/avatar'
   import { showToast } from '../stores/toast'
+  import { triggerFinanceModal } from '../stores/financeModal'
   import type { Medication, MedicationLog, SleepLog, EmotionEntry, NavTab } from '../lib/types'
 
   let medications: Medication[] = []
@@ -233,7 +234,7 @@
           <span>Еда</span>
         </div>
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <div class="quick-pill tap-target" on:click={() => navigate('finances')}>
+        <div class="quick-pill tap-target" on:click={() => { triggerFinanceModal.set(true); navigate('finances') }}>
           <span class="quick-icon">💰</span>
           <span>Трата</span>
         </div>
