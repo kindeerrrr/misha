@@ -24,6 +24,43 @@
   let fsSearching   = false
   let fsTimer:      ReturnType<typeof setTimeout> | null = null
 
+  // Manual entry form
+  let showManual  = false
+  let manualName  = ''
+  let manualAmt: number | null  = 100
+  let manualUnit  = 'г'
+  let manualCal: number | null  = null
+  let manualProt: number | null = null
+  let manualFat: number | null  = null
+  let manualCarb: number | null = null
+
+  function openManual() {
+    manualName = query.trim()
+    manualAmt  = 100
+    manualUnit = 'г'
+    manualCal  = null; manualProt = null; manualFat = null; manualCarb = null
+    showManual = true
+  }
+
+  function submitManual() {
+    if (!manualName.trim() || !manualAmt) return
+    const cal100  = manualCal  != null && manualAmt ? Math.round(manualCal  / manualAmt * 100)       : null
+    const prot100 = manualProt != null && manualAmt ? Math.round(manualProt / manualAmt * 100 * 10) / 10 : null
+    const fat100  = manualFat  != null && manualAmt ? Math.round(manualFat  / manualAmt * 100 * 10) / 10 : null
+    const carb100 = manualCarb != null && manualAmt ? Math.round(manualCarb / manualAmt * 100 * 10) / 10 : null
+    dispatch('pick', {
+      id:                `manual-${Date.now()}`,
+      name:              manualName.trim(),
+      brand:             null,
+      calories_per_100g: cal100,
+      protein_per_100g:  prot100,
+      fat_per_100g:      fat100,
+      carbs_per_100g:    carb100,
+      source:            'local',
+    })
+    showManual = false
+  }
+
   const dispatch = createEventDispatcher<{
     pick:    FoodCandidate
     barcode: void
@@ -168,7 +205,7 @@
       {:else if suggestions.length === 0 && query.length > 0 && !fsSearching}
         <div class="empty-hint">
           <p>Ничего не найдено</p>
-          <p class="empty-sub">Попробуйте другое название</p>
+          <p class="empty-sub">Попробуйте другое название или добавьте вручную</p>
         </div>
       {:else}
         <div class="result-list">
@@ -192,6 +229,18 @@
             </div>
           {/each}
         </div>
+      {/if}
+      <!-- Always show "add manually" button when there's a query -->
+      {#if query.trim().length > 0}
+        <button class="manual-trigger" on:click={openManual}>
+          <span class="manual-trigger-ico">✏️</span>
+          Добавить «{query.trim()}» вручную
+        </button>
+      {:else}
+        <button class="manual-trigger" on:click={openManual}>
+          <span class="manual-trigger-ico">✏️</span>
+          Добавить вручную
+        </button>
       {/if}
 
     <!-- Недавно tab -->
@@ -251,6 +300,65 @@
     {/if}
 
   </div>
+
+  <!-- ── Manual entry overlay ── -->
+  {#if showManual}
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="manual-overlay" on:click|self={() => showManual = false}>
+      <div class="manual-sheet">
+        <div class="manual-handle" />
+        <h3 class="manual-title">Добавить вручную</h3>
+
+        <label class="mf-label" for="mf-name">Название *</label>
+        <input id="mf-name" class="mf-input" type="text" bind:value={manualName}
+          placeholder="Например: Домашний борщ" />
+
+        <div class="mf-row">
+          <div class="mf-field">
+            <label class="mf-label" for="mf-amt">Количество *</label>
+            <input id="mf-amt" class="mf-input" type="number" inputmode="decimal"
+              bind:value={manualAmt} min="1" placeholder="100" />
+          </div>
+          <div class="mf-field unit-field">
+            <label class="mf-label">Единица</label>
+            <div class="mf-unit-row">
+              {#each ['г', 'мл', 'шт'] as u}
+                <button class="mf-unit-btn" class:active={manualUnit === u}
+                  on:click={() => manualUnit = u}>{u}</button>
+              {/each}
+            </div>
+          </div>
+        </div>
+
+        <label class="mf-label" for="mf-cal">Калории (необязательно)</label>
+        <input id="mf-cal" class="mf-input" type="number" inputmode="decimal"
+          bind:value={manualCal} min="0" placeholder="—" />
+
+        <div class="mf-row">
+          <div class="mf-field">
+            <label class="mf-label" for="mf-p">Белки (г)</label>
+            <input id="mf-p" class="mf-input" type="number" inputmode="decimal"
+              bind:value={manualProt} min="0" placeholder="—" />
+          </div>
+          <div class="mf-field">
+            <label class="mf-label" for="mf-f">Жиры (г)</label>
+            <input id="mf-f" class="mf-input" type="number" inputmode="decimal"
+              bind:value={manualFat} min="0" placeholder="—" />
+          </div>
+          <div class="mf-field">
+            <label class="mf-label" for="mf-c">Углев. (г)</label>
+            <input id="mf-c" class="mf-input" type="number" inputmode="decimal"
+              bind:value={manualCarb} min="0" placeholder="—" />
+          </div>
+        </div>
+
+        <button class="mf-save" disabled={!manualName.trim() || !manualAmt} on:click={submitManual}>
+          Добавить в дневник
+        </button>
+        <button class="mf-cancel" on:click={() => showManual = false}>Отмена</button>
+      </div>
+    </div>
+  {/if}
 
   <!-- ── Bottom action bar ── -->
   <div class="bottom-bar">
@@ -399,6 +507,80 @@
   }
   .empty-hint p { margin: 0; font-size: 0.9375rem; color: var(--color-muted); }
   .empty-sub { font-size: 0.8125rem !important; opacity: 0.7; }
+
+  /* ── Add manually trigger ── */
+  .manual-trigger {
+    display: flex; align-items: center; gap: 0.5rem;
+    width: 100%; padding: 0.875rem 1rem;
+    background: none; border: none; border-top: 1px solid var(--color-border);
+    color: var(--color-accent); font-size: 0.9rem; font-family: inherit;
+    cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent;
+    transition: background 0.1s;
+  }
+  .manual-trigger:active { background: var(--color-card); }
+  .manual-trigger-ico { font-size: 1rem; }
+
+  /* ── Manual entry overlay ── */
+  .manual-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 10; display: flex; align-items: flex-end;
+  }
+  .manual-sheet {
+    background: var(--color-bg); border-radius: 1.5rem 1.5rem 0 0;
+    padding: 1rem 1.125rem calc(1.5rem + env(safe-area-inset-bottom));
+    width: 100%; animation: slideUp 0.25s cubic-bezier(0.32,0.72,0,1);
+    max-height: 85dvh; overflow-y: auto;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .manual-handle {
+    width: 2.5rem; height: 4px; background: var(--color-border);
+    border-radius: 2px; margin: 0 auto 1rem;
+  }
+  .manual-title {
+    font-size: 1.0625rem; font-weight: 700; color: var(--color-text);
+    margin: 0 0 1rem;
+  }
+  .mf-label {
+    display: block; font-size: 0.72rem; color: var(--color-muted);
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.3rem;
+  }
+  .mf-input {
+    width: 100%; padding: 0.625rem 0.875rem;
+    background: var(--color-card); border: 1px solid var(--color-border);
+    border-radius: 0.875rem; color: var(--color-text);
+    font-size: 1rem; font-family: inherit; box-sizing: border-box;
+    outline: none; -webkit-appearance: none; margin-bottom: 0.875rem;
+  }
+  .mf-input:focus { border-color: var(--color-accent); }
+  .mf-row { display: flex; gap: 0.625rem; margin-bottom: 0; }
+  .mf-field { flex: 1; }
+  .unit-field { flex: 1.4; }
+  .mf-unit-row { display: flex; gap: 0.25rem; margin-bottom: 0.875rem; }
+  .mf-unit-btn {
+    flex: 1; padding: 0.625rem 0;
+    background: var(--color-card); border: 1px solid var(--color-border);
+    border-radius: 0.875rem; color: var(--color-muted);
+    font-size: 0.875rem; font-family: inherit; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; transition: all 0.15s;
+  }
+  .mf-unit-btn.active {
+    background: var(--color-accent); border-color: var(--color-accent); color: white;
+  }
+  .mf-save {
+    width: 100%; padding: 0.9rem;
+    background: var(--color-success); color: white;
+    border: none; border-radius: 1rem;
+    font-size: 1rem; font-weight: 600; font-family: inherit;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    margin-bottom: 0.5rem; transition: opacity 0.15s;
+  }
+  .mf-save:disabled { opacity: 0.45; cursor: default; }
+  .mf-cancel {
+    width: 100%; padding: 0.75rem;
+    background: none; border: none; color: var(--color-muted);
+    font-size: 0.9375rem; font-family: inherit; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
 
   /* ── Bottom bar ── */
   .bottom-bar {

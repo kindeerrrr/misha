@@ -113,7 +113,10 @@
   $: usedDots      = Math.min(100, Math.round(totalCalories / goals.daily_calories * 100))
 
   function mealItems(id: MealId) { return entries.filter(e => e.meal === id) }
-  function mealCal(id: MealId)   { return mealItems(id).reduce((s, e) => s + (e.calories ?? 0), 0) }
+  function mealCal(id: MealId)  { return mealItems(id).reduce((s, e) => s + (e.calories ?? 0), 0) }
+  function mealProt(id: MealId) { return mealItems(id).reduce((s, e) => s + (e.protein  ?? 0), 0) }
+  function mealFat(id: MealId)  { return mealItems(id).reduce((s, e) => s + (e.fat      ?? 0), 0) }
+  function mealCarb(id: MealId) { return mealItems(id).reduce((s, e) => s + (e.carbs    ?? 0), 0) }
 
   // ── Detail derived ────────────────────────────────────────────────────────
   $: detailDC    = detailFood ? getDryCooked(detailFood.name) : null
@@ -645,9 +648,12 @@
 
       <!-- ── 7-day strip ── -->
       <div class="card week-card">
-        {#if streak > 0}
-          <p class="streak-label">🔥 {streak} {streakLabel(streak)}</p>
-        {/if}
+        <div class="week-header-row">
+          <span class="week-section-lbl">СЕРИЯ ДНЕЙ</span>
+          <span class="streak-badge">
+            {#if streak > 0}🔥 {streak} {streakLabel(streak)}{:else}Начни серию!{/if}
+          </span>
+        </div>
         <div class="week-strip">
           {#each weekDays as d}
             <button
@@ -659,12 +665,12 @@
               disabled={d.isFuture}
               on:click={() => selectedDate = d.date}
             >
-              <span class="day-lbl">{d.label}</span>
               {#if d.hasEntries}
                 <span class="day-check">✓</span>
               {:else}
                 <span class="day-dot" />
               {/if}
+              <span class="day-lbl">{d.label}</span>
             </button>
           {/each}
         </div>
@@ -720,6 +726,7 @@
       <!-- ── Meal cards ── -->
       {#each MEALS as meal}
         {@const items = mealItems(meal.id)}
+        {@const mcal  = mealCal(meal.id)}
         <div class="card meal-card">
           <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
           <div class="meal-row" on:click={() => expandedMeal = expandedMeal === meal.id ? null : meal.id}>
@@ -730,12 +737,17 @@
               <span class="meal-name">{meal.label}</span>
               <span class="meal-sub">
                 {#if items.length === 0}
-                  Нет записей
+                  пусто
                 {:else}
-                  {items.length} {items.length === 1 ? 'продукт' : items.length < 5 ? 'продукта' : 'продуктов'} · {fmt(mealCal(meal.id))} ккал
+                  {items.length} {items.length === 1 ? 'продукт' : items.length < 5 ? 'продукта' : 'продуктов'}
                 {/if}
               </span>
             </div>
+            {#if items.length === 0}
+              <span class="meal-cal-empty">—</span>
+            {:else}
+              <span class="meal-cal-val">{fmt(mcal)} <span class="meal-cal-unit">ккал</span></span>
+            {/if}
             <button
               class="add-btn"
               style="background: {meal.color}"
@@ -746,37 +758,64 @@
 
           {#if expandedMeal === meal.id}
             <div class="meal-entries">
-              {#if items.length === 0}
-                <p class="entries-empty">Нет записей — нажмите + чтобы добавить</p>
-              {:else}
+              {#if items.length > 0}
+                <!-- КБЖУ итого по приёму -->
+                <div class="meal-kbju-row">
+                  <span class="mkr-item prot">Б {fmt(mealProt(meal.id))}г</span>
+                  <span class="mkr-dot">·</span>
+                  <span class="mkr-item fat">Ж {fmt(mealFat(meal.id))}г</span>
+                  <span class="mkr-dot">·</span>
+                  <span class="mkr-item carb">У {fmt(mealCarb(meal.id))}г</span>
+                </div>
                 {#each items as entry}
                   <div class="entry-row" class:fading={deletingId === entry.id}>
                     <div class="entry-info">
                       <span class="entry-name">{entry.food_name}</span>
                       <span class="entry-meta">
-                        {entry.amount}{entry.unit}
-                        {#if entry.state} · {entry.state}{/if}
-                        {#if entry.calories != null} · {fmt(entry.calories)} ккал{/if}
+                        {entry.amount}{entry.unit}{#if entry.state} · {entry.state}{/if}
                       </span>
                     </div>
-                    <button class="del-btn" on:click={() => deleteEntry(entry.id)} aria-label="Удалить">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="15" height="15">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-                        <path d="M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                    <div class="entry-right">
+                      {#if entry.calories != null}
+                        <span class="entry-cal">{fmt(entry.calories)}</span>
+                      {/if}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="var(--color-border)" stroke-width="2" width="14" height="14">
+                        <path d="M9 18l6-6-6-6"/>
                       </svg>
-                    </button>
+                      <button class="del-btn" on:click={() => deleteEntry(entry.id)} aria-label="Удалить">✕</button>
+                    </div>
                   </div>
                 {/each}
+              {:else}
+                <p class="entries-empty">Нет записей — нажмите + чтобы добавить</p>
               {/if}
+              <!-- Footer links -->
+              <div class="meal-footer">
+                <button class="meal-footer-btn" disabled title="Скоро">+ Камера</button>
+                <button class="meal-footer-btn" disabled title="Скоро">+ Сохранить</button>
+              </div>
             </div>
           {/if}
         </div>
       {/each}
 
+      <!-- ── Сожжённые калории (placeholder) ── -->
+      <div class="card burned-card">
+        <div class="burned-row">
+          <div class="burned-icon-wrap">
+            <span>🔥</span>
+          </div>
+          <div class="burned-info">
+            <span class="burned-label">Сожжённые калории</span>
+            <span class="burned-sub">Подключите Apple Health или введите вручную</span>
+          </div>
+          <span class="burned-val muted">+0</span>
+        </div>
+      </div>
+
       <!-- ── Day summary ── -->
       <div class="card summary-card">
-        <p class="summary-title">Итог дня</p>
+        <p class="summary-title">СВОДКА ДНЯ</p>
         <div class="summary-body">
           <div class="summary-table">
             <div class="st-row">
@@ -913,37 +952,45 @@
   }
 
   /* ── Week card ── */
-  .week-card { padding: 0.75rem 0.75rem; }
-  .streak-label {
-    font-size: 0.8rem; color: var(--color-muted); margin: 0 0 0.5rem;
-    font-weight: 500; letter-spacing: 0.02em;
+  .week-card { padding: 0.75rem 0.875rem 0.875rem; }
+  .week-header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.625rem;
   }
-  .week-strip { display: flex; justify-content: space-between; gap: 0.25rem; }
+  .week-section-lbl {
+    font-size: 0.625rem; font-weight: 700; color: var(--color-muted);
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .streak-badge {
+    font-size: 0.75rem; font-weight: 600; color: var(--color-text);
+  }
+  .week-strip { display: flex; justify-content: space-between; gap: 0.125rem; }
   .day-circle {
-    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
-    padding: 0.375rem 0.125rem; border-radius: 0.75rem;
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+    padding: 0.25rem 0.125rem 0.375rem; border-radius: 0.75rem;
     background: none; border: 1px solid transparent;
     cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.15s;
   }
-  .day-circle:disabled { cursor: default; opacity: 0.45; }
-  .day-circle.is-selected {
-    background: var(--color-accent)15;
-    border-color: var(--color-accent)40;
+  .day-circle:disabled { cursor: default; opacity: 0.5; }
+  .day-circle.is-selected:not(.has-entries) {
+    background: var(--color-accent)12;
+    border-color: var(--color-accent)30;
   }
-  .day-lbl  { font-size: 0.65rem; color: var(--color-muted); font-weight: 500; text-transform: uppercase; }
+  .day-lbl  { font-size: 0.625rem; color: var(--color-muted); font-weight: 500; }
   .day-check {
-    width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    width: 1.75rem; height: 1.75rem; border-radius: 50%;
     background: var(--color-success);
-    color: white; font-size: 0.625rem;
+    color: white; font-size: 0.7rem;
     display: flex; align-items: center; justify-content: center; font-weight: 700;
   }
+  .day-circle.has-entries.is-selected .day-check { box-shadow: 0 0 0 3px var(--color-success)30; }
   .day-circle.is-today .day-dot {
-    width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    width: 1.75rem; height: 1.75rem; border-radius: 50%;
     border: 2px dashed var(--color-accent);
     background: none;
   }
   .day-dot {
-    width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    width: 1.75rem; height: 1.75rem; border-radius: 50%;
     border: 1.5px dashed var(--color-border);
   }
 
@@ -987,8 +1034,11 @@
   }
   .meal-ico  { font-size: 1.375rem; }
   .meal-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-  .meal-name { font-size: 1rem; font-weight: 600; color: var(--color-text); }
-  .meal-sub  { font-size: 0.78rem; color: var(--color-muted); }
+  .meal-name     { font-size: 1rem; font-weight: 600; color: var(--color-text); }
+  .meal-sub      { font-size: 0.78rem; color: var(--color-muted); }
+  .meal-cal-val  { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); white-space: nowrap; }
+  .meal-cal-unit { font-size: 0.72rem; font-weight: 400; color: var(--color-muted); }
+  .meal-cal-empty { font-size: 0.875rem; color: var(--color-muted); }
   .add-btn {
     width: 2.25rem; height: 2.25rem; border-radius: 50%;
     border: none; color: white; font-size: 1.5rem; line-height: 1;
@@ -998,29 +1048,71 @@
   }
   .add-btn:active { transform: scale(0.9); }
 
-  .meal-entries { border-top: 1px solid var(--color-border); padding: 0.375rem 0; }
-  .entries-empty { font-size: 0.8125rem; color: var(--color-muted); margin: 0.5rem 1rem; }
+  .meal-entries { border-top: 1px solid var(--color-border); padding: 0; }
+  .entries-empty { font-size: 0.8125rem; color: var(--color-muted); margin: 0.625rem 1rem; }
+
+  /* КБЖУ per-meal row */
+  .meal-kbju-row {
+    display: flex; align-items: center; gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+  .mkr-item { font-size: 0.75rem; font-weight: 600; }
+  .mkr-item.prot { color: #007AFF; }
+  .mkr-item.fat  { color: #FF9500; }
+  .mkr-item.carb { color: #FF3B30; }
+  .mkr-dot { color: var(--color-border); font-size: 0.75rem; }
 
   .entry-row {
     display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.5rem 1rem; border-bottom: 1px solid var(--color-border);
+    padding: 0.5625rem 1rem; border-bottom: 1px solid var(--color-border);
     transition: opacity 0.2s;
   }
   .entry-row:last-child { border-bottom: none; }
   .entry-row.fading { opacity: 0.4; }
   .entry-info { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .entry-name { font-size: 0.9rem; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .entry-name { font-size: 0.9rem; font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .entry-meta { font-size: 0.72rem; color: var(--color-muted); }
+  .entry-right { display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0; }
+  .entry-cal   { font-size: 0.875rem; color: var(--color-muted); font-family: "JetBrains Mono", monospace; }
   .del-btn {
-    background: none; border: none; color: var(--color-muted); cursor: pointer;
-    padding: 0.25rem; border-radius: 0.375rem;
+    background: none; border: none; color: var(--color-border); cursor: pointer;
+    padding: 0.25rem; border-radius: 0.375rem; font-size: 0.75rem;
     -webkit-tap-highlight-color: transparent; transition: color 0.15s;
     flex-shrink: 0;
   }
   .del-btn:active { color: var(--color-danger); }
 
+  /* Meal footer links */
+  .meal-footer {
+    display: flex; gap: 1rem;
+    padding: 0.625rem 1rem;
+    border-top: 1px solid var(--color-border);
+  }
+  .meal-footer-btn {
+    background: none; border: none;
+    color: var(--color-accent); font-size: 0.8125rem; font-family: inherit;
+    cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent;
+  }
+  .meal-footer-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* Burned card */
+  .burned-card { }
+  .burned-row  { display: flex; align-items: center; gap: 0.75rem; }
+  .burned-icon-wrap {
+    width: 2.75rem; height: 2.75rem; border-radius: 0.875rem;
+    background: #FF950022; display: flex; align-items: center; justify-content: center;
+    font-size: 1.375rem; flex-shrink: 0;
+  }
+  .burned-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .burned-label { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); }
+  .burned-sub   { font-size: 0.75rem; color: var(--color-muted); }
+  .burned-val   { font-size: 1rem; font-weight: 700; color: var(--color-success); font-family: "JetBrains Mono", monospace; flex-shrink: 0; }
+  .burned-val.muted { color: var(--color-muted); font-weight: 400; }
+
   /* ── Summary card ── */
-  .summary-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); margin: 0 0 0.75rem; }
+  .summary-title { font-size: 0.625rem; font-weight: 700; color: var(--color-muted); margin: 0 0 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; }
   .summary-body  { display: flex; gap: 1rem; align-items: flex-start; }
   .summary-table { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; }
   .st-row  { display: flex; justify-content: space-between; align-items: center; }
