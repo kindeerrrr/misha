@@ -220,10 +220,12 @@
 
   // ── Barcode scanner ───────────────────────────────────────────────────────
   async function startScanner() {
+    // Close modal first so scanner gets full screen
+    showModal     = false
     scanning      = true
     barcodeStatus = ''
-    // Wait one tick for the video element to mount
-    await new Promise(r => setTimeout(r, 100))
+    // Wait for modal to close and video element to mount
+    await new Promise(r => setTimeout(r, 180))
     if (!scannerVideoEl) return
 
     try {
@@ -243,6 +245,7 @@
     } catch (e) {
       barcodeStatus = 'error'
       scanning = false
+      showModal = true   // reopen modal on error so user isn't stuck
       console.error('Scanner error:', e)
     }
   }
@@ -257,7 +260,9 @@
   // ── Barcode lookup: Open Food Facts → FatSecret ───────────────────────────
   async function lookupBarcode(code: string) {
     barcodeStatus = 'searching'
-    showModal     = true   // open form with progress indicator
+    // Reset form before filling from barcode
+    formName = ''; formGrams = 100; formCalories = null
+    formProtein = null; formFat = null; formCarbs = null; pickedItem = null
 
     // 1) Try Open Food Facts (great Russian product coverage, no auth)
     try {
@@ -286,6 +291,7 @@
           formGrams     = formGrams ?? 100
           recalcMacros()
           barcodeStatus = 'found'
+          showModal = true
           return
         }
       }
@@ -312,12 +318,14 @@
           formGrams  = formGrams ?? 100
           recalcMacros()
           barcodeStatus = 'found'
+          showModal = true
           return
         }
       } catch { /* ignore */ }
     }
 
     barcodeStatus = 'notfound'
+    showModal = true
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -638,8 +646,8 @@
 
   /* ── Scanner overlay ── */
   .scanner-overlay {
-    position: fixed; inset: 0; z-index: 200;
-    background: rgba(0,0,0,0.88);
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.92);
     display: flex; align-items: center; justify-content: center;
   }
   .scanner-inner {
